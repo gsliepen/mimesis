@@ -1,0 +1,16 @@
+From: Some One <some.one@example.org>
+To: Someone Else <someone.else@example.org>
+Subject: Test
+Content-Type: multipart/alternative; boundary=zxnrbl
+
+This is the preamble.
+--zxnrbl
+Content-Type: text/plain
+
+Hello!
+--zxnrbl
+Content-Type: text/html
+
+<p>Hello!</p>
+--zxnrbl--
+This is the epilogue.

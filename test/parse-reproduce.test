@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+rm -Rf reproduced
+mkdir -p reproduced
+
+for input in testcases/*; do
+	output=reproduced/$(basename $input)
+	./parse-reproduce < $input > $output
+	cmp $input $output
+done

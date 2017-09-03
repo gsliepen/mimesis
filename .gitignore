@@ -26,4 +26,6 @@ Makefile.in
 /install-sh
 /libtool
 /ltmain.sh
+/mimesis-*.tar.gz
 /missing
+/test-driver
