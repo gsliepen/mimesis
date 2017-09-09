@@ -1,6 +1,7 @@
 From: Some One <some.one@example.org>
 To: Someone Else <someone.else@example.org>
 Subject: Test
+MIME-Version: 1.0
 Content-Type: multipart/mixed; boundary=zxnrbl
 
 This is the preamble.

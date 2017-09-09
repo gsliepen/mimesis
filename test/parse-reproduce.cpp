@@ -1,8 +1,15 @@
 #include <iostream>
+
 #include <mimesis.hpp>
+
+using namespace std;
 
 int main(int argc, char *argv[]) {
 	Mimesis::MIMEPart msg;
-	msg.load(std::cin);
-	msg.save(std::cout);
+	try {
+		msg.load(cin);
+	} catch(runtime_error &e) {
+		return 1;
+	}
+	msg.save(cout);
 }
