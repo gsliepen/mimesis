@@ -7,7 +7,7 @@ using namespace std;
 
 int main(int argc, char *argv[]) {
 	// 01-simple
-	Mimesis::MIMEPart msg;
+	Mimesis::Message msg;
 	msg["From"] = "Some One <some.one@example.org>";
 	msg["To"] = "Someone Else <someone.else@example.org>";
 	msg["Subject"] = "Test";
@@ -19,8 +19,7 @@ int main(int argc, char *argv[]) {
 	msg["From"] = "Some One <some.one@example.org>";
 	msg["To"] = "Someone Else <someone.else@example.org>";
 	msg["Subject"] = "Test";
-	msg.make_multipart("alternative");
-	msg.set_boundary("zxnrbl");
+	msg.make_multipart("alternative", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
 		Mimesis::MIMEPart plain_hello;
@@ -42,8 +41,7 @@ int main(int argc, char *argv[]) {
 	msg["From"] = "Some One <some.one@example.org>";
 	msg["To"] = "Someone Else <someone.else@example.org>";
 	msg["Subject"] = "Test";
-	msg.make_multipart("mixed");
-	msg.set_boundary("zxnrbl");
+	msg.make_multipart("mixed", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
 		Mimesis::MIMEPart plain_hello;
@@ -59,20 +57,18 @@ int main(int argc, char *argv[]) {
 		msg.append_part(plain_attachment);
 	}
 	msg.set_epilogue("This is the epilogue.\r\n");
-	msg.save("03-multipart-alternative");
+	msg.save("03-multipart-mixed");
 
 	// 04-nested-multipart
 	msg.clear();
 	msg["From"] = "Some One <some.one@example.org>";
 	msg["To"] = "Someone Else <someone.else@example.org>";
 	msg["Subject"] = "Test";
-	msg.make_multipart("mixed");
-	msg.set_boundary("zxnrbl");
+	msg.make_multipart("mixed", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
 		Mimesis::MIMEPart nested;
-		nested.make_multipart("alternative");
-		nested.set_boundary("xyzzy");
+		nested.make_multipart("alternative", "xyzzy");
 		nested.set_preamble("This is the nested preamble.\r\n");
 		{
 			Mimesis::MIMEPart plain_hello;

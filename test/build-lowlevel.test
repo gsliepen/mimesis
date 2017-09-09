@@ -3,6 +3,12 @@ set -e
 
 rm -Rf built-lowlevel
 mkdir -p built-lowlevel
-cd built-lowlevel
 
+cd built-lowlevel
 ../build-lowlevel
+cd ..
+
+for input in testcases/*; do
+	output=built-lowlevel/$(basename $input)
+	cmp $input $output
+done

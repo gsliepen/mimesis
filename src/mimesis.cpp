@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <iostream>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -27,9 +28,61 @@ using namespace std;
 
 namespace Mimesis {
 
+static std::random_device rnd;
+
+static const string base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static string base64_encode(const void *data, size_t len) {
+	string out;
+	size_t outlen = ((len + 2) / 3) * 4;
+	out.reserve(outlen);
+
+	auto in = static_cast<const uint8_t *>(data);
+	size_t i;
+
+	for (i = 0; i < (len / 3) * 3; i += 3) {
+		out.push_back(base64[                        (in[i + 0] >> 2)]);
+		out.push_back(base64[(in[i + 0] & 63 << 4) | (in[i + 1] >> 4)]);
+		out.push_back(base64[(in[i + 1] & 63 << 2) | (in[i + 2] >> 6)]);
+		out.push_back(base64[(in[i + 2] & 63)                        ]);
+	}
+
+	while (i++ < len)
+		out.push_back('=');
+
+	return out;
+}
+
+static string generate_boundary() {
+	unsigned int nonce[24 / sizeof(unsigned int)];
+	for (auto &val: nonce)
+		val = rnd();
+	return base64_encode(nonce, sizeof nonce);
+}
+
+static bool is_boundary(const std::string &line, const std::string &boundary) {
+	if (boundary.empty())
+		return false;
+
+	if (line.compare(0, 2, "--"))
+		return false;
+
+	if (line.compare(2, boundary.size(), boundary))
+		return false;
+
+	return true;
+}
+
+static bool is_final_boundary(const std::string &line, const std::string &boundary) {
+	if (line.compare(2 + boundary.size(), 2, "--"))
+		return false;
+
+	return is_boundary(line, boundary);
+}
+
 static const string ending[2] = {"\n", "\r\n"};
 
-MIMEPart::MIMEPart(): multipart(false), crlf(true) {}
+MIMEPart::MIMEPart(): multipart(false), crlf(true), message(false) {}
 
 // Loading and saving a whole MIME message
 
@@ -40,7 +93,7 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 	int nlf = 0;
 
 	while (getline(in, line)) {
-		if (!parent_boundary.empty() && line.find(parent_boundary) == 0)
+		if (is_boundary(line, parent_boundary))
 			return line;
 
 		if (line.size() && line.back() == '\r') {
@@ -96,9 +149,7 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 			throw runtime_error("multipart but no boundary specified");
 		boundary = content_type->substr(b + 9);
 		if (boundary[0] == '"')
-			boundary = "--" + boundary.substr(1, boundary.size() - 2);
-		else
-			boundary = "--" + boundary;
+			boundary = boundary.substr(1, boundary.size() - 2);
 		multipart = true;
 	} else {
 		multipart = false;
@@ -106,16 +157,16 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 
 	if (!multipart) {
 		while (getline(in, line)) {
-			if (!parent_boundary.empty() && line.find(parent_boundary) == 0)
+			if (is_boundary(line, parent_boundary))
 				return line;
 			line.push_back('\n');
 			body.append(line);
 		}
 	} else {
 		while (getline(in, line)) {
-			if (!parent_boundary.empty() && line.find(parent_boundary) == 0)
+			if (is_boundary(line, parent_boundary))
 				return line;
-			if (line.find(boundary) == 0)
+			if (is_boundary(line, boundary))
 				break;
 			line.push_back('\n');
 			preamble.append(line);
@@ -123,16 +174,15 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 
 		while (true) {
 			parts.emplace_back();
-			string child_boundary = parts.back().load(in, boundary);
-			if (child_boundary.find(boundary + "--") == 0)
+			string last_line = parts.back().load(in, boundary);
+			if (!is_boundary(last_line, boundary))
+				throw runtime_error("invalid boundary");
+			if (is_final_boundary(last_line, boundary))
 				break;
-			if (child_boundary.find(boundary) == 0)
-				continue;
-			throw runtime_error("invalid boundary");
 		}
 
 		while (getline(in, line)) {
-			if (!parent_boundary.empty() && line.find(parent_boundary) == 0)
+			if (is_boundary(line, parent_boundary))
 				return line;
 			line.push_back('\n');
 			epilogue.append(line);
@@ -162,10 +212,10 @@ void MIMEPart::save(ostream &out) const {
 	} else {
 		out << preamble;
 		for (auto &part: parts) {
-			out << boundary << ending[crlf];
+			out << "--" << boundary << ending[crlf];
 			part.save(out);
 		}
-		out << boundary << "--" << ending[crlf];
+		out << "--" << boundary << "--" << ending[crlf];
 		out << epilogue;
 	}
 }
@@ -248,7 +298,7 @@ void MIMEPart::set_epilogue(const string &value) {
 }
 
 void MIMEPart::set_boundary(const std::string &value) {
-	boundary = "--" + value;
+	boundary = value;
 }
 
 void MIMEPart::set_parts(const vector<MIMEPart> &value) {
@@ -267,6 +317,7 @@ void MIMEPart::clear() {
 	body.clear();
 	epilogue.clear();
 	parts.clear();
+	boundary.clear();
 	multipart = false;
 }
 
@@ -352,14 +403,21 @@ void MIMEPart::remove_all_parts() {
 	parts.clear();
 }
 
-void MIMEPart::make_multipart(const string &type) {
+void MIMEPart::make_multipart(const string &type, const string &suggested_boundary) {
 	if (multipart)
 		return;
 
 	multipart = true;
 
-	set_header("MIME-Version", "1.0");
-	set_header("Content-Type", "multipart/" + type);
+	if (message)
+		set_header("MIME-Version", "1.0");
+
+	if (!suggested_boundary.empty())
+		set_boundary(suggested_boundary);
+	if (boundary.empty())
+		boundary = generate_boundary();
+
+	set_header("Content-Type", "multipart/" + type + "; boundary=" + boundary);
 
 	if (!body.empty()) {
 		auto part = append_part({});
@@ -389,4 +447,9 @@ bool MIMEPart::make_singlepart() {
 	return true;
 }
 
+Message::Message() {
+	message = true;
+}
+
+}
 }

@@ -34,6 +34,9 @@ class MIMEPart {
 	bool multipart;
 	bool crlf;
 
+	protected:
+	bool message;
+
 	public:
 	MIMEPart();
 
@@ -78,8 +81,13 @@ class MIMEPart {
 	MIMEPart &append_part(const MIMEPart &part);
 	MIMEPart &prepend_part(const MIMEPart &part);
 	void remove_all_parts();
-	void make_multipart(const std::string &type = "mixed");
+	void make_multipart(const std::string &type, const std::string &boundary = {});
 	bool make_singlepart();
+};
+
+class Message: public MIMEPart {
+	public:
+	Message();
 };
 
 }
