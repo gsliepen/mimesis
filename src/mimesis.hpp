@@ -32,10 +32,64 @@ class MIMEPart {
 	std::vector<MIMEPart> parts;
 	std::string boundary;
 	bool multipart;
+	bool crlf;
 
 	public:
+	MIMEPart();
+
+	// Loading and saving a whole MIME message
 	std::string load(std::istream &in, const std::string &parent_boundary = {});
-	void save(std::ostream &out);
+	void load(const std::string &filename);
+	void save(std::ostream &out) const;
+	void save(const std::string &filename) const;
+	void from_string(const std::string &data);
+	std::string to_string() const;
+
+	// Low-level access
+	std::string get_body() const;
+	std::string get_preamble() const;
+	std::string get_epilogue() const;
+	std::string get_boundary() const;
+	std::vector<MIMEPart> &get_parts();
+	const std::vector<MIMEPart> &get_parts() const;
+	std::vector<std::pair<std::string, std::string>> &get_headers();
+	const std::vector<std::pair<std::string, std::string>> &get_headers() const;
+	bool is_multipart() const;
+
+	void set_body(const std::string &body);
+	void set_preamble(const std::string &preamble);
+	void set_epilogue(const std::string &epilogue);
+	void set_boundary(const std::string &boundary);
+	void set_parts(const std::vector<MIMEPart> &parts);
+	void set_headers(const std::vector<std::pair<std::string, std::string>> &headers);
+
+	void clear();
+
+	// Header manipulation
+	std::string get_header(const std::string &field) const;
+	void set_header(const std::string &field, const std::string &value);
+	std::string &operator[](const std::string &field);
+	const std::string &operator[](const std::string &field) const;
+	void append_header(const std::string &field, const std::string &value);
+	void prepend_header(const std::string &field, const std::string &value);
+	void erase_header(const std::string &field);
+
+	// Part manipulation
+	MIMEPart &append_part(const MIMEPart &part);
+	MIMEPart &prepend_part(const MIMEPart &part);
+	void remove_all_parts();
+	void make_multipart(const std::string &type = "mixed");
+	bool make_singlepart();
 };
 
+}
+
+std::ostream &operator<<(std::ostream &out, const Mimesis::MIMEPart &part) {
+	part.save(out);
+	return out;
+}
+
+std::istream &operator>>(std::istream &in, Mimesis::MIMEPart part) {
+	part.load(in);
+	return in;
 }
