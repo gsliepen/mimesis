@@ -791,8 +791,6 @@ void Part::clear_alternative(const string &type) {
 	Part *part;
 	while((part = get_first_matching_part(type))) {
 		part->clear();
-		if (part == get_first_matching_part(type))
-			abort();
 		cleared = true;
 	}
 

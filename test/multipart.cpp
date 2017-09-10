@@ -16,6 +16,13 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_body() == "body\r\n");
 	assert(msg.to_string() == "From: me\r\n\r\nbody\r\n");
 
+	// Clear body
+	msg.clear_body();
+	assert(msg.get_body().empty());
+	assert(!msg.get_headers().empty());
+
+	// Clear everything
+	msg.set_body("body\r\n");
 	msg.clear();
 	assert(msg.get_header("From").empty());
 	assert(msg.get_body().empty());
@@ -29,6 +36,7 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_header("MIME-Version") == "1.0");
 	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
 	assert(!msg.get_header_parameter("Content-Type", "boundary").empty());
+	assert(msg.get_boundary().size() == 32);
 	assert(msg.get_parts()[0].get_body() == "body\r\n");
 
 	{
@@ -40,6 +48,10 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_parts().size() == 2);
 	assert(msg.get_parts()[1].get_body() == "second body\r\n");
 
+	// Set preamble and epilogue
+	msg.set_preamble("preamble\r\n");
+	msg.set_epilogue("epilogue\r\n");
+
 	// Intermediate result
 	msg.set_boundary("-");
 	assert(msg.to_string() ==
@@ -47,6 +59,7 @@ int main(int argc, char *argv[]) {
 			"MIME-Version: 1.0\r\n"
 			"Content-Type: multipart/mixed; boundary=-\r\n"
 			"\r\n"
+			"preamble\r\n"
 			"---\r\n"
 			"\r\n"
 			"body\r\n"
@@ -54,18 +67,30 @@ int main(int argc, char *argv[]) {
 			"Content-Type: text/plain\r\n"
 			"\r\n"
 			"second body\r\n"
-			"-----\r\n");
+			"-----\r\n"
+			"epilogue\r\n");
 
 	// Idempotent make multipart
 	msg.make_multipart("mixed");
 	assert(msg.get_parts().size() == 2);
 
 	// Make different multipart
-	msg.make_multipart("parallel");
+	msg.make_multipart("parallel", "=");
 	assert(msg.is_multipart() == true);
+	assert(msg.get_preamble().empty());
+	assert(msg.get_epilogue().empty());
 	assert(msg.get_parts().size() == 1);
 	assert(msg.get_header_value("Content-Type") == "multipart/parallel");
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "multipart/mixed");
+	{
+		auto &part = msg.get_parts()[0];
+		assert(part.get_header_value("Content-Type") == "multipart/mixed");
+		assert(part.get_preamble() == "preamble\r\n");
+		assert(part.get_epilogue() == "epilogue\r\n");
+	}
+
+	// Constant part access
+	const auto &cmsg = msg;
+	assert(cmsg.get_parts().size() == 1);
 
 	// Clear parts
 	msg.clear_parts();
@@ -117,6 +142,11 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
 	assert(msg.get_attachments()[0]->get_body() == "attachment\r\n");
 
+
+	// Const access
+	assert(cmsg.get_first_matching_body("text/plain") == "plain body\r\n");
+	assert(cmsg.get_first_matching_body("text/pdf").empty());
+
 	// Delete parts
 	msg.clear_text();
 	assert(msg.has_text() == false);
@@ -164,5 +194,6 @@ int main(int argc, char *argv[]) {
 	msg.clear_plain();
 	assert(msg.has_text() == true);
 	assert(msg.has_plain() == false);
+	assert(msg.has_html() == true);
 	assert(msg.get_header_value("Content-Type") == "text/html");
 }
