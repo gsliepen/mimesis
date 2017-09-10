@@ -76,13 +76,54 @@ class MIMEPart {
 	void append_header(const std::string &field, const std::string &value);
 	void prepend_header(const std::string &field, const std::string &value);
 	void erase_header(const std::string &field);
+	void clear_headers();
+
+	// Specialized header functions
+	std::string get_multipart_type() const;
+	std::string get_header_value(const std::string &field) const;
+	std::string get_header_parameter(const std::string &field, const std::string &parameter) const;
+
+	void set_header_value(const std::string &field, const std::string &value);
+	void set_header_parameter(const std::string &field, const std::string &paramter, const std::string &value);
 
 	// Part manipulation
-	MIMEPart &append_part(const MIMEPart &part);
-	MIMEPart &prepend_part(const MIMEPart &part);
-	void remove_all_parts();
+	MIMEPart &append_part(const MIMEPart &part = {});
+	MIMEPart &prepend_part(const MIMEPart &part = {});
+	void clear_parts();
 	void make_multipart(const std::string &type, const std::string &boundary = {});
 	bool make_singlepart();
+
+	std::string get_mime_type() const;
+
+	// Body and attachments
+	MIMEPart &set_alternative(const std::string &subtype, const std::string &text);
+	void set_plain(const std::string &text);
+	void set_html(const std::string &text);
+
+	const MIMEPart *get_first_matching_part(const std::string &type) const;
+	MIMEPart *get_first_matching_part(const std::string &type);
+	std::string get_first_matching_body(const std::string &type) const;
+	std::string get_text() const;
+	std::string get_plain() const;
+	std::string get_html() const;
+
+	MIMEPart &attach(const MIMEPart &attachment);
+	MIMEPart &attach(const std::string &data, const std::string &mime_type, const std::string &filename = {});
+	MIMEPart &attach(std::istream &in, const std::string &mime_type, const std::string &filename = {});
+	std::vector<const MIMEPart *> get_attachments() const;
+
+	void clear_text();
+	void clear_plain();
+	void clear_html();
+	void clear_attachments();
+
+	bool has_text() const;
+	bool has_plain() const;
+	bool has_html() const;
+	bool has_attachments() const;
+
+	// Format manipulation
+	void set_crlf(bool value = true);
 };
 
 class Message: public MIMEPart {

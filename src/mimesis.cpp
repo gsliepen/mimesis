@@ -42,9 +42,9 @@ static string base64_encode(const void *data, size_t len) {
 
 	for (i = 0; i < (len / 3) * 3; i += 3) {
 		out.push_back(base64[                        (in[i + 0] >> 2)]);
-		out.push_back(base64[(in[i + 0] & 63 << 4) | (in[i + 1] >> 4)]);
-		out.push_back(base64[(in[i + 1] & 63 << 2) | (in[i + 2] >> 6)]);
-		out.push_back(base64[(in[i + 2] & 63)                        ]);
+		out.push_back(base64[(in[i + 0] << 4 & 63) | (in[i + 1] >> 4)]);
+		out.push_back(base64[(in[i + 1] << 2 & 63) | (in[i + 2] >> 6)]);
+		out.push_back(base64[(in[i + 2] << 0 & 63)                   ]);
 	}
 
 	while (i++ < len)
@@ -80,15 +80,88 @@ static bool is_final_boundary(const std::string &line, const std::string &bounda
 	return is_boundary(line, boundary);
 }
 
+static bool types_match(const std::string &a, const std::string &b) {
+	auto a_slash = a.find('/');
+	auto b_slash = b.find('/');
+	if (a_slash == string::npos || b_slash == string::npos)
+		return !a.compare(0, a_slash, b, 0, b_slash);
+	else
+		return !a.compare(b);
+}
+
+static void set_value(string &str, const string &value) {
+	size_t semicolon = str.find(';');
+
+	if (semicolon == string::npos)
+		str = value;
+	else
+		str.replace(0, semicolon, value);
+}
+
+static string get_value(const string &str) {
+	return str.substr(0, str.find(';'));
+}
+
+static size_t get_parameter_value_start(const string &str, const string &parameter) {
+	size_t pos = 0;
+
+	while((pos = str.find(';', pos)) != string::npos) {
+		pos++;
+		while (isspace(str[pos]))
+			pos++;
+		if (str.compare(pos, parameter.size(), parameter))
+			continue;
+		pos += parameter.size();
+		while (isspace(str[pos]))
+			pos++;
+		if (str[pos] != '=')
+			continue;
+		pos++;
+		while (isspace(str[pos]))
+			pos++;
+		break;
+	}
+
+	return pos;
+}
+
+static void set_parameter(string &str, const string &parameter, const string &value) {
+	size_t pos = get_parameter_value_start(str, parameter);
+
+	if (pos == string::npos)
+		str += "; " + parameter + "=" + value;
+	else
+		str.replace(pos, str.find(';', pos) - pos, value);
+}
+
+static string get_parameter(const string &str, const string &parameter) {
+	size_t pos = get_parameter_value_start(str, parameter);
+
+	if (pos == string::npos)
+		return {};
+
+	return str.substr(pos, str.find(';', pos) - pos);
+}
+
 static const string ending[2] = {"\n", "\r\n"};
 
-MIMEPart::MIMEPart(): multipart(false), crlf(true), message(false) {}
+MIMEPart::MIMEPart():
+		headers(),
+		preamble(),
+		body(),
+		epilogue(),
+		parts(),
+		boundary(),
+		multipart(false),
+		crlf(true),
+		message(false)
+{}
 
 // Loading and saving a whole MIME message
 
 string MIMEPart::load(istream &in, const string &parent_boundary) {
 	string line;
-	string *content_type = nullptr;
+	string content_type;
 	int ncrlf = 0;
 	int nlf = 0;
 
@@ -121,7 +194,7 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 				break;
 			}
 
-			if (line[i] < 33 || !(line[i] <= 127))
+			if (line[i] < 33 || static_cast<uint8_t>(line[i]) > 127)
 				throw runtime_error("invalid header line");
 		}
 
@@ -135,21 +208,21 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 		if (start >= line.size())
 			throw runtime_error("invalid header line");
 
-		headers.emplace_back(line.substr(0, colon), line.substr(start));
+		auto field = line.substr(0, colon);
+		auto value = line.substr(start);
 
-		if (headers.back().first == "Content-Type")
-			content_type = &headers.back().second;
+		headers.emplace_back(field, value);
+
+		if (field == "Content-Type")
+			content_type = value;
 	}
 
 	crlf = ncrlf > nlf;
 
-	if (content_type && content_type->substr(0, 10) == "multipart/") {
-		auto b = content_type->find("boundary=");
-		if (b == string::npos)
+	if (types_match(content_type, "multipart")) {
+		boundary = get_parameter(content_type, "boundary");
+		if (boundary.empty())
 			throw runtime_error("multipart but no boundary specified");
-		boundary = content_type->substr(b + 9);
-		if (boundary[0] == '"')
-			boundary = boundary.substr(1, boundary.size() - 2);
 		multipart = true;
 	} else {
 		multipart = false;
@@ -202,7 +275,7 @@ void MIMEPart::save(ostream &out) const {
 		}
 	}
 
-	if (!has_headers)
+	if (message && !has_headers)
 		throw runtime_error("no headers specified");
 
 	out << ending[crlf];
@@ -299,6 +372,8 @@ void MIMEPart::set_epilogue(const string &value) {
 
 void MIMEPart::set_boundary(const std::string &value) {
 	boundary = value;
+	if (!get_header("Content-Type").empty())
+		set_header_parameter("Content-Type", "boundary", boundary);
 }
 
 void MIMEPart::set_parts(const vector<MIMEPart> &value) {
@@ -384,7 +459,41 @@ void MIMEPart::prepend_header(const string &field, const string &value) {
 void MIMEPart::erase_header(const string &field) {
 	headers.erase(remove_if(begin(headers), end(headers), [&](pair<string, string> &header){
 		return header.first == field;
-	}));
+	}), end(headers));
+}
+
+void MIMEPart::clear_headers() {
+	headers.clear();
+}
+
+string MIMEPart::get_header_value(const string &field) const {
+	return get_value(get_header(field));
+}
+
+string MIMEPart::get_header_parameter(const string &field, const string &parameter) const {
+	return get_parameter(get_header(field), parameter);
+}
+
+void MIMEPart::set_header_value(const string &field, const string &value) {
+	for (auto &header: headers) {
+		if (iequals(header.first, field)) {
+			set_value(header.second, value);
+			return;
+		}
+	}
+
+	append_header(field, value);
+}
+
+void MIMEPart::set_header_parameter(const string &field, const string &parameter, const string &value) {
+	for (auto &header: headers) {
+		if (iequals(header.first, field)) {
+			set_parameter(header.second, parameter, value);
+			return;
+		}
+	}
+
+	append_header(field, "; " + parameter + "=" + value);
 }
 
 // Part manipulation
@@ -399,32 +508,46 @@ MIMEPart &MIMEPart::prepend_part(const MIMEPart &part) {
 	return parts.front();
 }
 
-void MIMEPart::remove_all_parts() {
+void MIMEPart::clear_parts() {
 	parts.clear();
 }
 
-void MIMEPart::make_multipart(const string &type, const string &suggested_boundary) {
-	if (multipart)
-		return;
+void MIMEPart::make_multipart(const string &subtype, const string &suggested_boundary) {
+	if (multipart) {
+		if (get_mime_type() == "multipart/" + subtype)
+			return;
+		MIMEPart part;
+		part.preamble = move(preamble);
+		part.epilogue = move(epilogue);
+		part.parts = move(parts);
+		part.boundary = move(boundary);
+		part.multipart = true;
+		part.set_header("Content-Type", get_header("Content-Type"));
+		part.set_header("Content-Disposition", get_header("Content-Disposition"));
+		set_header("Content-Disposition", {});
+		part.crlf = crlf;
+		parts.emplace_back(move(part));
+	} else {
+		multipart = true;
 
-	multipart = true;
+		if (message)
+			set_header("MIME-Version", "1.0");
 
-	if (message)
-		set_header("MIME-Version", "1.0");
+		if (!body.empty()) {
+			auto &part = append_part();
+			part.set_header("Content-Type", get_header("Content-Type"));
+			part.set_header("Content-Disposition", get_header("Content-Disposition"));
+			set_header("Content-Disposition", {});
+			part.body = move(body);
+		}
+	}
 
 	if (!suggested_boundary.empty())
 		set_boundary(suggested_boundary);
 	if (boundary.empty())
 		boundary = generate_boundary();
 
-	set_header("Content-Type", "multipart/" + type + "; boundary=" + boundary);
-
-	if (!body.empty()) {
-		auto part = append_part({});
-		part.set_header("Content-Type", part.get_header("Content-Type"));
-		part.set_body(get_body());
-		body.clear();
-	}
+	set_header("Content-Type", "multipart/" + subtype + "; boundary=" + boundary);
 }
 
 bool MIMEPart::make_singlepart() {
@@ -439,7 +562,7 @@ bool MIMEPart::make_singlepart() {
 	if (parts.empty())
 		return true;
 
-	auto part = parts.front();
+	auto &part = parts.front();
 	set_header("Content-Type", part.get_header("Content-Type"));
 	set_body(part.get_body());
 	parts.clear();
@@ -447,9 +570,199 @@ bool MIMEPart::make_singlepart() {
 	return true;
 }
 
+// Body and attachments
+
+string MIMEPart::get_mime_type() const {
+	return get_header_value("Content-Type");
+}
+
+const MIMEPart *MIMEPart::get_first_matching_part(const string &type) const {
+	if (!multipart) {
+		if (get_header_value("Content-Disposition") == "attachment")
+			return nullptr;
+		auto my_type = get_mime_type();
+		if (types_match(my_type.empty() ? "text/plain" : my_type, type))
+			return this;
+	} else {
+		for (auto &part: parts) {
+			auto result = part.get_first_matching_part(type);
+			if (result)
+				return result;
+		}
+	}
+
+	return nullptr;
+}
+
+MIMEPart *MIMEPart::get_first_matching_part(const string &type) {
+	auto result = ((const MIMEPart *)this)->get_first_matching_part(type);
+	return const_cast<MIMEPart *>(result);
+}
+
+string MIMEPart::get_first_matching_body(const string &type) const {
+	const auto &part = get_first_matching_part(type);
+	if (part)
+		return part->get_body();
+	else
+		return {};
+}
+
+MIMEPart &MIMEPart::set_alternative(const string &subtype, const string &text) {
+	string type = "text/" + subtype;
+	MIMEPart *part = nullptr;
+
+	// Try to put it in the body first.
+	if (!multipart) {
+		if (body.empty() || get_header_value("Content-Type") == type) {
+			part = this;
+		} else if (types_match(get_header_value("Content-Type"), "text") && get_header_value("Content-Disposition") != "attachment") {
+			make_multipart("alternative");
+			part = &append_part();
+		} else {
+			make_multipart("mixed");
+			part = &prepend_part();
+		}
+	} else {
+		// If there is already a text/plain part, use that one.
+		part = get_first_matching_part(type);
+		if (part) {
+			part->set_header_value("Content-Type", type);
+			part->set_body(text);
+			return *part;
+		}
+
+		// If there is already a multipart/alternative with text, use that one.
+		part = get_first_matching_part("multipart/alternative");
+		if (part && part->get_first_matching_part("text"))
+			part = &part->append_part();
+
+		// If there is already inline text, make it multipart/alternative.
+
+		if (!part && (part = get_first_matching_part("text"))) {
+			part->make_multipart("alternative");
+			part = &part->append_part();
+		}
+
+		// Otherwise, assume we're multipart/mixed.
+		if (!part)
+			part = &prepend_part();
+	}
+
+	part->set_header("Content-Type", type);
+	part->set_body(text);
+
+	return *part;
+}
+
+void MIMEPart::set_plain(const string &text) {
+	set_alternative("plain", text);
+}
+
+void MIMEPart::set_html(const string &html) {
+	set_alternative("html", html);
+}
+
+string MIMEPart::get_plain() const {
+	return get_first_matching_body("text/plain");
+}
+
+string MIMEPart::get_html() const {
+	return get_first_matching_body("text/html");
+}
+
+string MIMEPart::get_text() const {
+	return get_first_matching_body("text");
+}
+
+MIMEPart &MIMEPart::attach(const MIMEPart &attachment) {
+	if (!multipart && body.empty()) {
+		if (attachment.message)
+			set_header("Content-Type", "message/rfc822");
+		else
+			set_header("Content-Type", attachment.get_header("Content-Type"));
+		body = attachment.to_string();
+		return *this;
+	}
+
+	make_multipart("mixed");
+	append_part(attachment);
+	return parts.back();
+}
+
+MIMEPart &MIMEPart::attach(const string &data, const string &type, const string &filename) {
+	if (!multipart && body.empty()) {
+		set_header("Content-Type", type.empty() ? "text/plain" : type);
+		set_header("Content-Disposition", "attachment");
+		if (!filename.empty())
+			set_header_parameter("Content-Disposition", "filename", filename);
+		body = data;
+		return *this;
+	}
+
+	make_multipart("mixed");
+	auto &part = append_part();
+	part.set_header("Content-Type", type.empty() ? "text/plain" : type);
+	part.set_header("Content-Disposition", "attachment");
+	if (!filename.empty())
+		part.set_header_parameter("Content-Disposition", "filename", filename);
+	part.set_body(data);
+	return part;
+}
+
+MIMEPart &MIMEPart::attach(istream &in, const string &type, const string &filename) {
+	string foo;
+	(void)in;
+	return attach(foo, type, filename);
+}
+
+vector<const MIMEPart *> MIMEPart::get_attachments() const {
+	vector<const MIMEPart *> attachments;
+
+	if (!multipart && get_header_value("Content-Disposition") == "attachment") {
+		attachments.push_back(this);
+		return attachments;
+	}
+
+	for (auto &part: parts) {
+		auto sub = part.get_attachments();
+		attachments.insert(end(attachments), begin(sub), end(sub));
+	}
+
+	return attachments;
+}
+
+void MIMEPart::clear_attachments() {
+}
+
+void MIMEPart::clear_text() {
+}
+
+void MIMEPart::clear_plain() {
+}
+
+void MIMEPart::clear_html() {
+}
+
+bool MIMEPart::has_text() const {
+	return get_first_matching_part("text");
+}
+
+bool MIMEPart::has_plain() const {
+	return get_first_matching_part("text/plain");
+}
+
+bool MIMEPart::has_html() const {
+	return get_first_matching_part("text/html");
+}
+
+bool MIMEPart::has_attachments() const {
+	return false;
+}
+
+// RFC2822 messages
+
 Message::Message() {
 	message = true;
 }
 
-}
 }
