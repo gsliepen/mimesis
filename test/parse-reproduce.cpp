@@ -5,7 +5,7 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
-	Mimesis::MIMEPart msg;
+	Mimesis::Part msg;
 	try {
 		msg.load(cin);
 	} catch(runtime_error &e) {

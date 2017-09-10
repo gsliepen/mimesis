@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 	msg.save("04-nested-multipart");
 
 	// 05-nested-message-rfc822
-	Mimesis::MIMEPart outer;
+	Mimesis::Part outer;
 	outer["From"] = "Some One <some.one@example.org>";
 	outer["To"] = "Someone Else <someone.else@example.org>";
 	outer["Subject"] = "Test";

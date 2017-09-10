@@ -9,7 +9,7 @@ static string indent(int level) {
 	return string(level, '\t');
 }
 
-static void describe_part(Mimesis::MIMEPart &part, int level) {
+static void describe_part(Mimesis::Part &part, int level) {
 	string content_type = part.get_header("Content-Type");
 	string from = part.get_header("From");
 
@@ -24,7 +24,7 @@ static void describe_part(Mimesis::MIMEPart &part, int level) {
 }
 
 int main(int argc, char *argv[]) {
-	Mimesis::MIMEPart msg;
+	Mimesis::Part msg;
 	try {
 		msg.load(cin);
 	} catch (runtime_error &e) {

@@ -7,7 +7,7 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
-	Mimesis::MIMEPart part;
+	Mimesis::Part part;
 	
 	assert(part.get_headers().empty());
 		

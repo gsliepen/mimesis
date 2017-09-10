@@ -145,7 +145,7 @@ static string get_parameter(const string &str, const string &parameter) {
 
 static const string ending[2] = {"\n", "\r\n"};
 
-MIMEPart::MIMEPart():
+Part::Part():
 		headers(),
 		preamble(),
 		body(),
@@ -159,7 +159,7 @@ MIMEPart::MIMEPart():
 
 // Loading and saving a whole MIME message
 
-string MIMEPart::load(istream &in, const string &parent_boundary) {
+string Part::load(istream &in, const string &parent_boundary) {
 	string line;
 	string content_type;
 	int ncrlf = 0;
@@ -265,7 +265,7 @@ string MIMEPart::load(istream &in, const string &parent_boundary) {
 	return {};
 }
 
-void MIMEPart::save(ostream &out) const {
+void Part::save(ostream &out) const {
 	bool has_headers = false;
 
 	for (auto &header: headers) {
@@ -293,22 +293,22 @@ void MIMEPart::save(ostream &out) const {
 	}
 }
 
-void MIMEPart::load(const string &filename) {
+void Part::load(const string &filename) {
 	ifstream in(filename);
 	load(in);
 }
 
-void MIMEPart::save(const string &filename) const {
+void Part::save(const string &filename) const {
 	ofstream out(filename);
 	save(out);
 }
 
-void MIMEPart::from_string(const string &data) {
+void Part::from_string(const string &data) {
 	stringstream in(data, ios_base::in);
 	load(in);
 }
 
-string MIMEPart::to_string() const {
+string Part::to_string() const {
 	stringstream out(ios_base::out);
 	save(out);
 	return out.str();
@@ -316,77 +316,77 @@ string MIMEPart::to_string() const {
 
 // Low-level access
 
-string MIMEPart::get_body() const {
+string Part::get_body() const {
 	return body;
 }
 
-string MIMEPart::get_preamble() const {
+string Part::get_preamble() const {
 	return preamble;
 }
 
-string MIMEPart::get_epilogue() const {
+string Part::get_epilogue() const {
 	return epilogue;
 }
 
-string MIMEPart::get_boundary() const {
+string Part::get_boundary() const {
 	return boundary;
 }
 
-vector<MIMEPart> &MIMEPart::get_parts() {
+vector<Part> &Part::get_parts() {
 	return parts;
 }
 
-const vector<MIMEPart> &MIMEPart::get_parts() const {
+const vector<Part> &Part::get_parts() const {
 	return parts;
 }
 
-vector<pair<string, string>> &MIMEPart::get_headers() {
+vector<pair<string, string>> &Part::get_headers() {
 	return headers;
 }
 
-const vector<pair<string, string>> &MIMEPart::get_headers() const {
+const vector<pair<string, string>> &Part::get_headers() const {
 	return headers;
 }
 
-bool MIMEPart::is_multipart() const {
+bool Part::is_multipart() const {
 	return multipart;
 }
 
-void MIMEPart::set_body(const string &value) {
+void Part::set_body(const string &value) {
 	if (multipart)
 		throw runtime_error("Cannot set body of a multipart message");
 	body = value;
 }
 
-void MIMEPart::set_preamble(const string &value) {
+void Part::set_preamble(const string &value) {
 	if (!multipart)
 		throw runtime_error("Cannot set preamble of a non-multipart message");
 	preamble = value;
 }
 
-void MIMEPart::set_epilogue(const string &value) {
+void Part::set_epilogue(const string &value) {
 	if (!multipart)
 		throw runtime_error("Cannot set epilogue of a non-multipart message");
 	epilogue = value;
 }
 
-void MIMEPart::set_boundary(const std::string &value) {
+void Part::set_boundary(const std::string &value) {
 	boundary = value;
 	if (!get_header("Content-Type").empty())
 		set_header_parameter("Content-Type", "boundary", boundary);
 }
 
-void MIMEPart::set_parts(const vector<MIMEPart> &value) {
+void Part::set_parts(const vector<Part> &value) {
 	if (!multipart)
 		throw runtime_error("Cannot set parts of a non-multipart message");
 	parts = value;
 }
 
-void MIMEPart::set_headers(const vector<pair<string, string>> &value) {
+void Part::set_headers(const vector<pair<string, string>> &value) {
 	headers = value;
 }
 
-void MIMEPart::clear() {
+void Part::clear() {
 	headers.clear();
 	preamble.clear();
 	body.clear();
@@ -409,7 +409,7 @@ static bool iequals(const string &a, const string &b) {
 	return true;
 }
 
-string MIMEPart::get_header(const string &field) const {
+string Part::get_header(const string &field) const {
 	for (const auto &header: headers)
 		if (iequals(header.first, field))
 			return header.second;
@@ -417,7 +417,7 @@ string MIMEPart::get_header(const string &field) const {
 	return {};
 }
 
-void MIMEPart::set_header(const string &field, const string &value) {
+void Part::set_header(const string &field, const string &value) {
 	for (auto &header: headers) {
 		if (iequals(header.first, field)) {
 			header.second = value;
@@ -428,7 +428,7 @@ void MIMEPart::set_header(const string &field, const string &value) {
 	append_header(field, value);
 }
 
-string &MIMEPart::operator[](const string &field) {
+string &Part::operator[](const string &field) {
 	for (auto &header: headers)
 		if (iequals(header.first, field))
 			return header.second;
@@ -437,7 +437,7 @@ string &MIMEPart::operator[](const string &field) {
 	return headers.back().second;
 }
 
-const string &MIMEPart::operator[](const string &field) const {
+const string &Part::operator[](const string &field) const {
 	for (auto &header: headers)
 		if (iequals(header.first, field))
 			return header.second;
@@ -446,35 +446,35 @@ const string &MIMEPart::operator[](const string &field) const {
 	return empty_string;
 }
 
-void MIMEPart::append_header(const string &field, const string &value) {
+void Part::append_header(const string &field, const string &value) {
 	headers.push_back(make_pair(field, value));
 }
 
 
-void MIMEPart::prepend_header(const string &field, const string &value) {
+void Part::prepend_header(const string &field, const string &value) {
 	headers.insert(begin(headers), make_pair(field, value));
 }
 
 
-void MIMEPart::erase_header(const string &field) {
+void Part::erase_header(const string &field) {
 	headers.erase(remove_if(begin(headers), end(headers), [&](pair<string, string> &header){
 		return header.first == field;
 	}), end(headers));
 }
 
-void MIMEPart::clear_headers() {
+void Part::clear_headers() {
 	headers.clear();
 }
 
-string MIMEPart::get_header_value(const string &field) const {
+string Part::get_header_value(const string &field) const {
 	return get_value(get_header(field));
 }
 
-string MIMEPart::get_header_parameter(const string &field, const string &parameter) const {
+string Part::get_header_parameter(const string &field, const string &parameter) const {
 	return get_parameter(get_header(field), parameter);
 }
 
-void MIMEPart::set_header_value(const string &field, const string &value) {
+void Part::set_header_value(const string &field, const string &value) {
 	for (auto &header: headers) {
 		if (iequals(header.first, field)) {
 			set_value(header.second, value);
@@ -485,7 +485,7 @@ void MIMEPart::set_header_value(const string &field, const string &value) {
 	append_header(field, value);
 }
 
-void MIMEPart::set_header_parameter(const string &field, const string &parameter, const string &value) {
+void Part::set_header_parameter(const string &field, const string &parameter, const string &value) {
 	for (auto &header: headers) {
 		if (iequals(header.first, field)) {
 			set_parameter(header.second, parameter, value);
@@ -498,25 +498,25 @@ void MIMEPart::set_header_parameter(const string &field, const string &parameter
 
 // Part manipulation
 
-MIMEPart &MIMEPart::append_part(const MIMEPart &part) {
+Part &Part::append_part(const Part &part) {
 	parts.push_back(part);
 	return parts.back();
 }
 
-MIMEPart &MIMEPart::prepend_part(const MIMEPart &part) {
+Part &Part::prepend_part(const Part &part) {
 	parts.insert(begin(parts), part);
 	return parts.front();
 }
 
-void MIMEPart::clear_parts() {
+void Part::clear_parts() {
 	parts.clear();
 }
 
-void MIMEPart::make_multipart(const string &subtype, const string &suggested_boundary) {
+void Part::make_multipart(const string &subtype, const string &suggested_boundary) {
 	if (multipart) {
 		if (get_mime_type() == "multipart/" + subtype)
 			return;
-		MIMEPart part;
+		Part part;
 		part.preamble = move(preamble);
 		part.epilogue = move(epilogue);
 		part.parts = move(parts);
@@ -550,7 +550,7 @@ void MIMEPart::make_multipart(const string &subtype, const string &suggested_bou
 	set_header("Content-Type", "multipart/" + subtype + "; boundary=" + boundary);
 }
 
-bool MIMEPart::make_singlepart() {
+bool Part::make_singlepart() {
 	if (!multipart)
 		return true;
 
@@ -572,11 +572,11 @@ bool MIMEPart::make_singlepart() {
 
 // Body and attachments
 
-string MIMEPart::get_mime_type() const {
+string Part::get_mime_type() const {
 	return get_header_value("Content-Type");
 }
 
-const MIMEPart *MIMEPart::get_first_matching_part(const string &type) const {
+const Part *Part::get_first_matching_part(const string &type) const {
 	if (!multipart) {
 		if (get_header_value("Content-Disposition") == "attachment")
 			return nullptr;
@@ -594,12 +594,12 @@ const MIMEPart *MIMEPart::get_first_matching_part(const string &type) const {
 	return nullptr;
 }
 
-MIMEPart *MIMEPart::get_first_matching_part(const string &type) {
-	auto result = ((const MIMEPart *)this)->get_first_matching_part(type);
-	return const_cast<MIMEPart *>(result);
+Part *Part::get_first_matching_part(const string &type) {
+	auto result = ((const Part *)this)->get_first_matching_part(type);
+	return const_cast<Part *>(result);
 }
 
-string MIMEPart::get_first_matching_body(const string &type) const {
+string Part::get_first_matching_body(const string &type) const {
 	const auto &part = get_first_matching_part(type);
 	if (part)
 		return part->get_body();
@@ -607,9 +607,9 @@ string MIMEPart::get_first_matching_body(const string &type) const {
 		return {};
 }
 
-MIMEPart &MIMEPart::set_alternative(const string &subtype, const string &text) {
+Part &Part::set_alternative(const string &subtype, const string &text) {
 	string type = "text/" + subtype;
-	MIMEPart *part = nullptr;
+	Part *part = nullptr;
 
 	// Try to put it in the body first.
 	if (!multipart) {
@@ -654,27 +654,27 @@ MIMEPart &MIMEPart::set_alternative(const string &subtype, const string &text) {
 	return *part;
 }
 
-void MIMEPart::set_plain(const string &text) {
+void Part::set_plain(const string &text) {
 	set_alternative("plain", text);
 }
 
-void MIMEPart::set_html(const string &html) {
+void Part::set_html(const string &html) {
 	set_alternative("html", html);
 }
 
-string MIMEPart::get_plain() const {
+string Part::get_plain() const {
 	return get_first_matching_body("text/plain");
 }
 
-string MIMEPart::get_html() const {
+string Part::get_html() const {
 	return get_first_matching_body("text/html");
 }
 
-string MIMEPart::get_text() const {
+string Part::get_text() const {
 	return get_first_matching_body("text");
 }
 
-MIMEPart &MIMEPart::attach(const MIMEPart &attachment) {
+Part &Part::attach(const Part &attachment) {
 	if (!multipart && body.empty()) {
 		if (attachment.message)
 			set_header("Content-Type", "message/rfc822");
@@ -689,7 +689,7 @@ MIMEPart &MIMEPart::attach(const MIMEPart &attachment) {
 	return parts.back();
 }
 
-MIMEPart &MIMEPart::attach(const string &data, const string &type, const string &filename) {
+Part &Part::attach(const string &data, const string &type, const string &filename) {
 	if (!multipart && body.empty()) {
 		set_header("Content-Type", type.empty() ? "text/plain" : type);
 		set_header("Content-Disposition", "attachment");
@@ -709,14 +709,14 @@ MIMEPart &MIMEPart::attach(const string &data, const string &type, const string 
 	return part;
 }
 
-MIMEPart &MIMEPart::attach(istream &in, const string &type, const string &filename) {
+Part &Part::attach(istream &in, const string &type, const string &filename) {
 	string foo;
 	(void)in;
 	return attach(foo, type, filename);
 }
 
-vector<const MIMEPart *> MIMEPart::get_attachments() const {
-	vector<const MIMEPart *> attachments;
+vector<const Part *> Part::get_attachments() const {
+	vector<const Part *> attachments;
 
 	if (!multipart && get_header_value("Content-Disposition") == "attachment") {
 		attachments.push_back(this);
@@ -731,31 +731,31 @@ vector<const MIMEPart *> MIMEPart::get_attachments() const {
 	return attachments;
 }
 
-void MIMEPart::clear_attachments() {
+void Part::clear_attachments() {
 }
 
-void MIMEPart::clear_text() {
+void Part::clear_text() {
 }
 
-void MIMEPart::clear_plain() {
+void Part::clear_plain() {
 }
 
-void MIMEPart::clear_html() {
+void Part::clear_html() {
 }
 
-bool MIMEPart::has_text() const {
+bool Part::has_text() const {
 	return get_first_matching_part("text");
 }
 
-bool MIMEPart::has_plain() const {
+bool Part::has_plain() const {
 	return get_first_matching_part("text/plain");
 }
 
-bool MIMEPart::has_html() const {
+bool Part::has_html() const {
 	return get_first_matching_part("text/html");
 }
 
-bool MIMEPart::has_attachments() const {
+bool Part::has_attachments() const {
 	return false;
 }
 

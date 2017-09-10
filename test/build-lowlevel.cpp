@@ -22,13 +22,13 @@ int main(int argc, char *argv[]) {
 	msg.make_multipart("alternative", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
-		Mimesis::MIMEPart plain_hello;
+		Mimesis::Part plain_hello;
 		plain_hello["Content-Type"] = "text/plain";
 		plain_hello.set_body("Hello!\r\n");
 		msg.append_part(plain_hello);
 	}
 	{
-		Mimesis::MIMEPart html_hello;
+		Mimesis::Part html_hello;
 		html_hello["Content-Type"] = "text/html";
 		html_hello.set_body("<p>Hello!</p>\r\n");
 		msg.append_part(html_hello);
@@ -44,13 +44,13 @@ int main(int argc, char *argv[]) {
 	msg.make_multipart("mixed", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
-		Mimesis::MIMEPart plain_hello;
+		Mimesis::Part plain_hello;
 		plain_hello["Content-Type"] = "text/plain";
 		plain_hello.set_body("Hello!\r\n");
 		msg.append_part(plain_hello);
 	}
 	{
-		Mimesis::MIMEPart plain_attachment;
+		Mimesis::Part plain_attachment;
 		plain_attachment["Content-Type"] = "text/plain";
 		plain_attachment["Content-Disposition"] = "attachment; filename=\"attachment.txt\"";
 		plain_attachment.set_body("This is the attachment.\r\n");
@@ -67,17 +67,17 @@ int main(int argc, char *argv[]) {
 	msg.make_multipart("mixed", "zxnrbl");
 	msg.set_preamble("This is the preamble.\r\n");
 	{
-		Mimesis::MIMEPart nested;
+		Mimesis::Part nested;
 		nested.make_multipart("alternative", "xyzzy");
 		nested.set_preamble("This is the nested preamble.\r\n");
 		{
-			Mimesis::MIMEPart plain_hello;
+			Mimesis::Part plain_hello;
 			plain_hello["Content-Type"] = "text/plain";
 			plain_hello.set_body("Hello!\r\n");
 			nested.append_part(plain_hello);
 		}
 		{
-			Mimesis::MIMEPart html_hello;
+			Mimesis::Part html_hello;
 			html_hello["Content-Type"] = "text/html";
 			html_hello.set_body("<p>Hello!</p>\r\n");
 			nested.append_part(html_hello);
@@ -86,7 +86,7 @@ int main(int argc, char *argv[]) {
 		msg.append_part(nested);
 	}
 	{
-		Mimesis::MIMEPart plain_attachment;
+		Mimesis::Part plain_attachment;
 		plain_attachment["Content-Type"] = "text/plain";
 		plain_attachment["Content-Disposition"] = "attachment; filename=\"attachment.txt\"";
 		plain_attachment.set_body("This is the attachment.\r\n");
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
 	msg.save("04-nested-multipart");
 
 	// 05-nested-message-rfc822
-	Mimesis::MIMEPart outer;
+	Mimesis::Part outer;
 	outer["From"] = "Some One <some.one@example.org>";
 	outer["To"] = "Someone Else <someone.else@example.org>";
 	outer["Subject"] = "Test";
