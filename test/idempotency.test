@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+rm -rf idempotent
+
+for input in built-lowlevel/* built-highlevel/*; do
+	mkdir -p idempotent/$(dirname $input)
+	output=idempotent/$(dirname $input)/$(basename $input)
+	echo $input
+	./parse-reproduce < $input > $output
+	cmp $input $output
+done
