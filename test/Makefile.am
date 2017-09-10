@@ -3,8 +3,8 @@ TESTS = \
 	describe.test \
 	build-lowlevel.test \
 	build-highlevel.test \
-	headers \
-	multipart
+	headers.test \
+	multipart.test
 
 dist_check_SCRIPTS = $(TESTS)
 
