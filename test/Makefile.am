@@ -9,6 +9,7 @@ TESTS = \
 dist_check_SCRIPTS = $(TESTS)
 
 AM_CPPFLAGS = -I../src
+LDADD = ../src/libmimesis.la
 
 check_PROGRAMS = \
 	parse-reproduce \
@@ -18,23 +19,12 @@ check_PROGRAMS = \
 	headers \
 	multipart
 
+parse_reproduce_SOURCES = parse-reproduce.cpp
+describe_SOURCES = describe.cpp
+build_lowlevel_SOURCES = build-lowlevel.cpp
+build_highlevel_SOURCES = build-highlevel.cpp
+headers_SOURCES = headers.cpp
+multipart_SOURCES = multipart.cpp
+
 clean-local:
 	-rm -rf reproduced described built-lowlevel built-highlevel idempotent
-
-parse_reproduce_SOURCES = parse-reproduce.cpp
-parse_reproduce_LDADD = ../src/libmimesis.la
-
-describe_SOURCES = describe.cpp
-describe_LDADD = ../src/libmimesis.la
-
-build_lowlevel_SOURCES = build-lowlevel.cpp
-build_lowlevel_LDADD = ../src/libmimesis.la
-
-build_highlevel_SOURCES = build-highlevel.cpp
-build_highlevel_LDADD = ../src/libmimesis.la
-
-headers_SOURCES = headers.cpp
-headers_LDADD = ../src/libmimesis.la
-
-multipart_SOURCES = multipart.cpp
-multipart_LDADD = ../src/libmimesis.la
