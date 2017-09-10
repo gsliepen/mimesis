@@ -18,6 +18,9 @@ check_PROGRAMS = \
 	headers \
 	multipart
 
+clean-local:
+	-rm -rf reproduced described built-lowlevel built-highlevel idempotent
+
 parse_reproduce_SOURCES = parse-reproduce.cpp
 parse_reproduce_LDADD = ../src/libmimesis.la
 
