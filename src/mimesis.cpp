@@ -304,12 +304,12 @@ void Part::save(const string &filename) const {
 }
 
 void Part::from_string(const string &data) {
-	stringstream in(data, ios_base::in);
+	istringstream in(data);
 	load(in);
 }
 
 string Part::to_string() const {
-	stringstream out(ios_base::out);
+	ostringstream out;
 	save(out);
 	return out.str();
 }
@@ -454,11 +454,9 @@ void Part::append_header(const string &field, const string &value) {
 	headers.push_back(make_pair(field, value));
 }
 
-
 void Part::prepend_header(const string &field, const string &value) {
 	headers.insert(begin(headers), make_pair(field, value));
 }
-
 
 void Part::erase_header(const string &field) {
 	headers.erase(remove_if(begin(headers), end(headers), [&](pair<string, string> &header){
