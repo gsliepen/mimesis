@@ -396,6 +396,10 @@ void Part::clear() {
 	multipart = false;
 }
 
+void Part::clear_body() {
+	body.clear();
+}
+
 // Header manipulation
 
 static bool iequals(const string &a, const string &b) {
@@ -524,7 +528,7 @@ void Part::make_multipart(const string &subtype, const string &suggested_boundar
 		part.multipart = true;
 		part.set_header("Content-Type", get_header("Content-Type"));
 		part.set_header("Content-Disposition", get_header("Content-Disposition"));
-		set_header("Content-Disposition", {});
+		erase_header("Content-Disposition");
 		part.crlf = crlf;
 		parts.emplace_back(move(part));
 	} else {
@@ -537,7 +541,7 @@ void Part::make_multipart(const string &subtype, const string &suggested_boundar
 			auto &part = append_part();
 			part.set_header("Content-Type", get_header("Content-Type"));
 			part.set_header("Content-Disposition", get_header("Content-Disposition"));
-			set_header("Content-Disposition", {});
+			erase_header("Content-Disposition");
 			part.body = move(body);
 		}
 	}
@@ -550,22 +554,29 @@ void Part::make_multipart(const string &subtype, const string &suggested_boundar
 	set_header("Content-Type", "multipart/" + subtype + "; boundary=" + boundary);
 }
 
-bool Part::make_singlepart() {
+bool Part::flatten() {
 	if (!multipart)
 		return true;
+
+	if (parts.empty()) {
+		multipart = false;
+		return true;
+	}
 
 	if (parts.size() > 1)
 		return false;
 
-	multipart = false;
-
-	if (parts.empty())
-		return true;
-
 	auto &part = parts.front();
 	set_header("Content-Type", part.get_header("Content-Type"));
-	set_body(part.get_body());
-	parts.clear();
+	set_header("Content-Disposition", part.get_header("Content-Disposition"));
+
+	if (part.multipart) {
+		parts = move(part.parts);
+	} else {
+		multipart = false;
+		set_body(part.get_body());
+		parts.clear();
+	}
 
 	return true;
 }
@@ -578,6 +589,8 @@ string Part::get_mime_type() const {
 
 const Part *Part::get_first_matching_part(const string &type) const {
 	if (!multipart) {
+		if (headers.empty() && body.empty())
+			return nullptr;
 		if (get_header_value("Content-Disposition") == "attachment")
 			return nullptr;
 		auto my_type = get_mime_type();
@@ -731,16 +744,72 @@ vector<const Part *> Part::get_attachments() const {
 	return attachments;
 }
 
+void Part::simplify() {
+	if (!multipart)
+		return;
+
+	for (auto &part: parts)
+		part.simplify();
+
+	parts.erase(remove_if(begin(parts), end(parts), [&](Part &part) {
+		return part.headers.empty() && part.body.empty();
+	}), end(parts));
+
+	if (parts.empty()) {
+		if (message) {
+			erase_header("Content-Type");
+			erase_header("Content-Disposition");
+			multipart = false;
+		} else {
+			clear();
+		}
+	} else if (parts.size() == 1) {
+		flatten();
+	}
+}
+
 void Part::clear_attachments() {
+	if (!multipart) {
+		if (get_header_value("Content-Disposition") == "attachment") {
+			if (message) {
+				erase_header("Content-Type");
+				erase_header("Content-Disposition");
+				body.clear();
+			} else {
+				clear();
+			}
+		}
+	} else {
+		for (auto &part: parts)
+			part.clear_attachments();
+		simplify();
+	}
+}
+
+void Part::clear_alternative(const string &type) {
+	bool cleared = false;
+	Part *part;
+	while((part = get_first_matching_part(type))) {
+		part->clear();
+		if (part == get_first_matching_part(type))
+			abort();
+		cleared = true;
+	}
+
+	if (cleared)
+		simplify();
 }
 
 void Part::clear_text() {
+	clear_alternative("text");
 }
 
 void Part::clear_plain() {
+	clear_alternative("text/plain");
 }
 
 void Part::clear_html() {
+	clear_alternative("text/html");
 }
 
 bool Part::has_text() const {

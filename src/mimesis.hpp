@@ -67,6 +67,7 @@ class Part {
 	void set_headers(const std::vector<std::pair<std::string, std::string>> &headers);
 
 	void clear();
+	void clear_body();
 
 	// Header manipulation
 	std::string get_header(const std::string &field) const;
@@ -91,7 +92,7 @@ class Part {
 	Part &prepend_part(const Part &part = {});
 	void clear_parts();
 	void make_multipart(const std::string &type, const std::string &boundary = {});
-	bool make_singlepart();
+	bool flatten();
 
 	std::string get_mime_type() const;
 
@@ -112,10 +113,13 @@ class Part {
 	Part &attach(std::istream &in, const std::string &mime_type, const std::string &filename = {});
 	std::vector<const Part *> get_attachments() const;
 
+	void clear_alternative(const std::string &subtype);
 	void clear_text();
 	void clear_plain();
 	void clear_html();
 	void clear_attachments();
+
+	void simplify();
 
 	bool has_text() const;
 	bool has_plain() const;

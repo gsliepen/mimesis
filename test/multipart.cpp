@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
 
 	assert(msg.get_parts().size() == 2);
 	assert(msg.get_parts()[1].get_body() == "second body\r\n");
-	
+
 	// Intermediate result
 	msg.set_boundary("-");
 	assert(msg.to_string() ==
@@ -59,7 +59,7 @@ int main(int argc, char *argv[]) {
 	// Idempotent make multipart
 	msg.make_multipart("mixed");
 	assert(msg.get_parts().size() == 2);
-	
+
 	// Make different multipart
 	msg.make_multipart("parallel");
 	assert(msg.is_multipart() == true);
@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
 		part.set_body("third body\r\n");
 	}
 	assert(!msg.get_parts().empty());
-	assert(msg.make_singlepart());
+	assert(msg.flatten());
 	assert(msg.is_multipart() == false);
 	assert(msg.get_parts().empty());
 	assert(msg.get_header("Content-Type") == "foo/bar");
@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
 	msg.set_plain("plain body\r\n");
 	assert(msg.is_multipart() == false);
 	assert(msg.get_header_value("Content-Type") == "text/plain");
-	
+
 	msg.set_html("html body\r\n");
 	assert(msg.is_multipart() == true);
 	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
@@ -116,6 +116,17 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_attachments().size() == 1);
 	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
 	assert(msg.get_attachments()[0]->get_body() == "attachment\r\n");
+
+	// Delete parts
+	msg.clear_text();
+	assert(msg.has_text() == false);
+	assert(msg.get_attachments().size() == 1);
+	assert(msg.get_header_value("Content-Type") == "text/plain");
+
+	msg.clear_attachments();
+	assert(msg.has_attachments() == false);
+	assert(msg.get_body().empty());
+	assert(msg.get_header("Content-Type").empty());
 
 	// Different order
 	msg.clear();
@@ -143,4 +154,15 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_attachments().size() == 1);
 	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
 	assert(msg.get_attachments()[0]->get_body() == "attachment\r\n");
-}	
+
+	// Delete parts
+	msg.clear_attachments();
+	assert(msg.has_text() == true);
+	assert(msg.has_attachments() == false);
+	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
+
+	msg.clear_plain();
+	assert(msg.has_text() == true);
+	assert(msg.has_plain() == false);
+	assert(msg.get_header_value("Content-Type") == "text/html");
+}
