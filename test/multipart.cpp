@@ -42,7 +42,7 @@ int main(int argc, char *argv[]) {
 
 	{
 		auto &part = msg.append_part();
-		part.set_header("Content-Type", "text/plain");
+		part.set_mime_type("text/plain");
 		part.set_body("second body\r\n");
 	}
 
@@ -77,14 +77,13 @@ int main(int argc, char *argv[]) {
 
 	// Make different multipart
 	msg.make_multipart("parallel", "=");
-	assert(msg.is_multipart() == true);
+	assert(msg.is_multipart("parallel"));
 	assert(msg.get_preamble().empty());
 	assert(msg.get_epilogue().empty());
 	assert(msg.get_parts().size() == 1);
-	assert(msg.get_header_value("Content-Type") == "multipart/parallel");
 	{
 		auto &part = msg.get_parts()[0];
-		assert(part.get_header_value("Content-Type") == "multipart/mixed");
+		assert(part.is_multipart("mixed"));
 		assert(part.get_preamble() == "preamble\r\n");
 		assert(part.get_epilogue() == "epilogue\r\n");
 	}
@@ -101,48 +100,50 @@ int main(int argc, char *argv[]) {
 	// Make singlepart
 	{
 		auto &part = msg.append_part();
-		part.set_header("Content-Type", "foo/bar");
+		part.set_mime_type("foo/bar");
 		part.set_body("third body\r\n");
 	}
 	assert(!msg.get_parts().empty());
 	assert(msg.flatten());
-	assert(msg.is_multipart() == false);
+	assert(msg.is_singlepart("foo"));
+	assert(!msg.is_singlepart("bar"));
+	assert(msg.is_singlepart("foo/bar"));
 	assert(msg.get_parts().empty());
-	assert(msg.get_header("Content-Type") == "foo/bar");
 	assert(msg.get_body() == "third body\r\n");
 
 	// High-level functions
 	msg.clear();
 	msg.set_plain("plain body\r\n");
-	assert(msg.is_multipart() == false);
-	assert(msg.get_header_value("Content-Type") == "text/plain");
+	assert(msg.is_singlepart("text/plain"));
 
 	msg.set_html("html body\r\n");
-	assert(msg.is_multipart() == true);
-	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
+	assert(msg.is_multipart("alternative"));
 	assert(msg.get_parts().size() == 2);
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_parts()[0].is_singlepart("text/plain"));
 	assert(msg.get_parts()[0].get_body() == "plain body\r\n");
-	assert(msg.get_parts()[1].get_header_value("Content-Type") == "text/html");
+	assert(msg.get_parts()[1].is_singlepart("text/html"));
 	assert(msg.get_parts()[1].get_body() == "html body\r\n");
 
 	msg.attach("attachment\r\n", "text/plain", "foo");
-	assert(msg.is_multipart() == true);
-	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.is_multipart("mixed"));
 	assert(msg.get_parts().size() == 2);
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "multipart/alternative");
+	assert(msg.get_parts()[0].is_multipart("alternative"));
 	assert(msg.get_parts()[0].get_header_value("Content-Disposition") != "attachment");
-	assert(msg.get_parts()[1].get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_parts()[0].is_attachment() == false);
+	assert(msg.get_parts()[0].has_attachments() == false);
+	assert(msg.get_parts()[1].is_singlepart("text/plain"));
 	assert(msg.get_parts()[1].get_header_value("Content-Disposition") == "attachment");
 	assert(msg.get_parts()[1].get_header_parameter("Content-Disposition", "filename") == "foo");
+	assert(msg.get_parts()[1].is_attachment() == true);
+	assert(msg.get_parts()[1].has_attachments() == true);
 
 	assert(msg.get_text() == "plain body\r\n");
 	assert(msg.get_plain() == "plain body\r\n");
 	assert(msg.get_html() == "html body\r\n");
+	assert(msg.has_attachments());
 	assert(msg.get_attachments().size() == 1);
-	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_attachments()[0]->is_singlepart("text/plain"));
 	assert(msg.get_attachments()[0]->get_body() == "attachment\r\n");
-
 
 	// Const access
 	assert(cmsg.get_first_matching_body("text/plain") == "plain body\r\n");
@@ -152,63 +153,63 @@ int main(int argc, char *argv[]) {
 	msg.clear_text();
 	assert(msg.has_text() == false);
 	assert(msg.get_attachments().size() == 1);
-	assert(msg.get_header_value("Content-Type") == "text/plain");
+	assert(msg.is_singlepart("text/plain"));
 
 	msg.clear_attachments();
 	assert(msg.has_attachments() == false);
 	assert(msg.get_body().empty());
 	assert(msg.get_header("Content-Type").empty());
+	assert(msg.has_mime_type() == false);
 
 	// Different order
 	msg.clear();
 	msg.attach("attachment\r\n", "text/plain", "foo");
 	msg.set_html("html body\r\n");
 	msg.set_plain("plain body\r\n");
-	assert(msg.is_multipart() == true);
-	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.is_multipart("mixed"));
 	assert(msg.get_parts().size() == 2);
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "multipart/alternative");
-	assert(msg.get_parts()[0].get_header_value("Content-Disposition") != "attachment");
-	assert(msg.get_parts()[1].get_header_value("Content-Type") == "text/plain");
-	assert(msg.get_parts()[1].get_header_value("Content-Disposition") == "attachment");
+	assert(msg.get_parts()[0].is_multipart("alternative"));
+	assert(msg.get_parts()[0].is_attachment() == false);
+	assert(msg.get_parts()[1].is_singlepart("text/plain"));
+	assert(msg.get_parts()[1].is_attachment() == true);
 	assert(msg.get_parts()[1].get_header_parameter("Content-Disposition", "filename") == "foo");
 	{
 		auto &alternative = msg.get_parts()[0];
 		assert(alternative.get_parts().size() == 2);
-		assert(alternative.get_parts()[0].get_header_value("Content-Type") == "text/html");
-		assert(alternative.get_parts()[1].get_header_value("Content-Type") == "text/plain");
+		assert(alternative.get_parts()[0].is_singlepart("text/html"));
+		assert(alternative.get_parts()[1].is_singlepart("text/plain"));
 	}
 
 	assert(msg.get_text() == "html body\r\n");
 	assert(msg.get_plain() == "plain body\r\n");
 	assert(msg.get_html() == "html body\r\n");
 	assert(msg.get_attachments().size() == 1);
-	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_attachments()[0]->is_singlepart("text/plain"));
 	assert(msg.get_attachments()[0]->get_body() == "attachment\r\n");
 
 	// Delete parts
 	msg.clear_attachments();
 	assert(msg.has_text() == true);
 	assert(msg.has_attachments() == false);
-	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
+	assert(msg.is_multipart("alternative"));
 
 	msg.clear_plain();
 	assert(msg.has_text() == true);
 	assert(msg.has_plain() == false);
 	assert(msg.has_html() == true);
-	assert(msg.get_header_value("Content-Type") == "text/html");
+	assert(msg.is_singlepart("text/html"));
 
 	// Add to existing multipart/alternative
 	msg.clear();
 	msg.make_multipart("alternative");
 	msg.set_html("html body\r\n");
-	assert(msg.is_multipart() == true);
+	assert(msg.is_multipart("alternative"));
 	assert(msg.get_parts().size() == 1);
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "text/html");
+	assert(msg.get_parts()[0].is_singlepart("text/html"));
 	msg.clear_html();
 	assert(msg.is_multipart() == false);
 	assert(msg.get_body().empty());
-	assert(msg.get_header_value("Content-Type").empty());
+	assert(msg.has_mime_type() == false);
 
 	// Combine with existing text part
 	msg.clear();
@@ -220,18 +221,18 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_parts().size() == 1);
 	{
 		auto &alternative = msg.get_parts()[0];
-		assert(alternative.get_header_value("Content-Type") == "multipart/alternative");
+		assert(alternative.is_multipart("alternative"));
 		assert(alternative.get_parts().size() == 2);
-		assert(alternative.get_parts()[0].get_header_value("Content-Type") == "text/plain");
-		assert(alternative.get_parts()[1].get_header_value("Content-Type") == "text/html");
+		assert(alternative.get_parts()[0].is_singlepart("text/plain"));
+		assert(alternative.get_parts()[1].is_singlepart("text/html"));
 	}
 
 	// Simplify
 	msg.simplify();
-	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
+	assert(msg.is_multipart("alternative"));
 	assert(msg.get_parts().size() == 2);
-	assert(msg.get_parts()[0].get_header_value("Content-Type") == "text/plain");
-	assert(msg.get_parts()[1].get_header_value("Content-Type") == "text/html");
+	assert(msg.get_parts()[0].is_singlepart("text/plain"));
+	assert(msg.get_parts()[1].is_singlepart("text/html"));
 
 	// Overwrite parts
 	msg.set_html("html body 2\r\n");
@@ -255,7 +256,7 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_attachments().size() == 1);
 	{
 		auto part = msg.get_attachments()[0];
-		assert(part->get_header_value("Content-Type") == "text/plain");
+		assert(part->is_singlepart("text/plain"));
 		assert(part->get_header_parameter("Content-Disposition", "filename") == "attachment.txt");
 		assert(part->get_body().size() > 4096);
 	}
@@ -268,8 +269,7 @@ int main(int argc, char *argv[]) {
 		part.set_body("plain body\r\n");
 		msg.attach(part);
 	}
-	assert(msg.is_multipart() == false);
-	assert(msg.get_header_value("Content-Type") == "text/plain");
+	assert(msg.is_singlepart("text/plain"));
 	assert(msg.get_attachments().size() == 1);
 
 	// Attach another part
@@ -279,11 +279,10 @@ int main(int argc, char *argv[]) {
 		part.set_body("html body\r\n");
 		msg.attach(part);
 	}
-	assert(msg.is_multipart() == true);
-	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.is_multipart("mixed"));
 	assert(msg.get_attachments().size() == 2);
-	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
-	assert(msg.get_attachments()[1]->get_header_value("Content-Type") == "text/html");
+	assert(msg.get_attachments()[0]->is_singlepart("text/plain"));
+	assert(msg.get_attachments()[1]->is_singlepart("text/html"));
 
 	// Attach a message
 	msg.clear();
@@ -294,6 +293,7 @@ int main(int argc, char *argv[]) {
 		msg.attach(msg2);
 	}
 	assert(msg.is_multipart() == false);
+	assert(msg.is_singlepart() == true);
 	assert(msg.get_header_value("Content-Type") == "message/rfc822");
 	assert(msg.get_attachments().size() == 1);
 
@@ -304,11 +304,10 @@ int main(int argc, char *argv[]) {
 		msg2.set_body("body\r\n");
 		msg.attach(msg2);
 	}
-	assert(msg.is_multipart() == true);
-	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.is_multipart("mixed"));
 	assert(msg.get_attachments().size() == 2);
-	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "message/rfc822");
-	assert(msg.get_attachments()[1]->get_header_value("Content-Type") == "message/rfc822");
+	assert(msg.get_attachments()[0]->is_singlepart("message/rfc822"));
+	assert(msg.get_attachments()[1]->is_singlepart("message/rfc822"));
 
 	// Transplant parts
 	msg.clear();
@@ -322,7 +321,7 @@ int main(int argc, char *argv[]) {
 		assert(other.get_parts().size() == 2);
 	}
 	assert(msg.get_parts().size() == 2);
-	assert(msg.get_parts()[0].get_mime_type() == "text/plain");
-	assert(msg.get_parts()[1].get_mime_type() == "text/html");
+	assert(msg.get_parts()[0].is_singlepart("text/plain"));
+	assert(msg.get_parts()[1].is_singlepart("text/html"));
 
 }

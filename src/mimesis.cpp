@@ -352,6 +352,26 @@ bool Part::is_multipart() const {
 	return multipart;
 }
 
+bool Part::is_multipart(const std::string &subtype) const {
+	return multipart && get_header_value("Content-Type") == "multipart/" + subtype;
+}
+
+bool Part::is_singlepart() const {
+	return !multipart;
+}
+
+bool Part::is_singlepart(const std::string &type) const {
+	return !multipart && types_match(get_header_value("Content-Type"), type);
+}
+
+bool Part::is_attachment() const {
+	return get_header_value("Content-Disposition") == "attachment";
+}
+
+bool Part::is_inline() const {
+	return get_header_value("Content-Disposition") == "inline";
+}
+
 void Part::set_body(const string &value) {
 	if (multipart)
 		throw runtime_error("Cannot set body of a multipart message");
@@ -372,7 +392,7 @@ void Part::set_epilogue(const string &value) {
 
 void Part::set_boundary(const std::string &value) {
 	boundary = value;
-	if (!get_header("Content-Type").empty())
+	if (has_mime_type())
 		set_header_parameter("Content-Type", "boundary", boundary);
 }
 
@@ -516,7 +536,7 @@ void Part::clear_parts() {
 
 void Part::make_multipart(const string &subtype, const string &suggested_boundary) {
 	if (multipart) {
-		if (get_mime_type() == "multipart/" + subtype)
+		if (is_multipart(subtype))
 			return;
 		Part part;
 		part.preamble = move(preamble);
@@ -585,11 +605,23 @@ string Part::get_mime_type() const {
 	return get_header_value("Content-Type");
 }
 
+void Part::set_mime_type(const std::string &type) {
+	return set_header_value("Content-Type", type);
+}
+
+bool Part::is_mime_type(const std::string &type) const {
+	return types_match(get_mime_type(), type);
+}
+
+bool Part::has_mime_type() const {
+	return !get_mime_type().empty();
+}
+
 const Part *Part::get_first_matching_part(function<bool(const Part &)> predicate) const {
 	if (!multipart) {
 		if (headers.empty() && body.empty())
 			return nullptr;
-		if (get_header_value("Content-Disposition") == "attachment")
+		if (is_attachment())
 			return nullptr;
 	}
 
@@ -636,9 +668,9 @@ Part &Part::set_alternative(const string &subtype, const string &text) {
 
 	// Try to put it in the body first.
 	if (!multipart) {
-		if (body.empty() || get_header_value("Content-Type") == type) {
+		if (body.empty() || is_mime_type(type)) {
 			part = this;
-		} else if (types_match(get_header_value("Content-Type"), "text") && get_header_value("Content-Disposition") != "attachment") {
+		} else if (is_mime_type("text") && !is_attachment()) {
 			make_multipart("alternative");
 			part = &append_part();
 		} else {
@@ -649,14 +681,14 @@ Part &Part::set_alternative(const string &subtype, const string &text) {
 		// If there is already a text/plain part, use that one.
 		part = get_first_matching_part(type);
 		if (part) {
-			part->set_header_value("Content-Type", type);
+			part->set_mime_type(type);
 			part->set_body(text);
 			return *part;
 		}
 
 		// If there is already a multipart/alternative with text, use that one.
 		part = get_first_matching_part([](const Part &part){
-				return part.get_mime_type() == "multipart/alternative"
+				return part.is_multipart("alternative")
 					&& !part.parts.empty()
 					&& part.get_first_matching_part("text");
 		});
@@ -851,6 +883,13 @@ bool Part::has_html() const {
 }
 
 bool Part::has_attachments() const {
+	if (is_attachment())
+		return true;
+
+	for (auto &part: parts)
+		if (part.has_attachments())
+			return true;
+
 	return false;
 }
 

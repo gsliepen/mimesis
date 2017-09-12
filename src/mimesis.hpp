@@ -61,6 +61,9 @@ class Part {
 	std::vector<std::pair<std::string, std::string>> &get_headers();
 	const std::vector<std::pair<std::string, std::string>> &get_headers() const;
 	bool is_multipart() const;
+	bool is_multipart(const std::string &subtype) const;
+	bool is_singlepart() const;
+	bool is_singlepart(const std::string &type) const;
 
 	void set_body(const std::string &body);
 	void set_preamble(const std::string &preamble);
@@ -98,6 +101,9 @@ class Part {
 	bool flatten();
 
 	std::string get_mime_type() const;
+	void set_mime_type(const std::string &type);
+	bool is_mime_type(const std::string &type) const;
+	bool has_mime_type() const;
 
 	// Body and attachments
 	Part &set_alternative(const std::string &subtype, const std::string &text);
@@ -130,6 +136,8 @@ class Part {
 	bool has_plain() const;
 	bool has_html() const;
 	bool has_attachments() const;
+	bool is_attachment() const;
+	bool is_inline() const;
 
 	// Format manipulation
 	void set_crlf(bool value = true);
