@@ -748,9 +748,12 @@ Part &Part::attach(const string &data, const string &type, const string &filenam
 }
 
 Part &Part::attach(istream &in, const string &type, const string &filename) {
-	string foo;
-	(void)in;
-	return attach(foo, type, filename);
+	auto &part = attach("", type, filename);
+	char buffer[4096];
+	while (in.read(buffer, sizeof(buffer)))
+		part.body.append(buffer, sizeof(buffer));
+	part.body.append(buffer, in.gcount());
+	return part;
 }
 
 vector<const Part *> Part::get_attachments() const {
