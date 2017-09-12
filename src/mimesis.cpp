@@ -860,4 +860,21 @@ Message::Message() {
 	message = true;
 }
 
+// Comparison
+
+bool operator==(const Part &lhs, const Part &rhs) {
+	return lhs.crlf == rhs.crlf
+		&& lhs.multipart == rhs.multipart
+		&& lhs.preamble == rhs.preamble
+		&& lhs.body == rhs.body
+		&& lhs.epilogue == rhs.epilogue
+		&& lhs.boundary == rhs.boundary
+		&& lhs.headers == rhs.headers
+		&& lhs.parts == rhs.parts;
+}
+
+bool operator!=(const Part &lhs, const Part &rhs) {
+	return !(lhs == rhs);
+}
+
 }

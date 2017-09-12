@@ -40,6 +40,8 @@ class Part {
 
 	public:
 	Part();
+	friend bool operator==(const Part &lhs, const Part &rhs);
+	friend bool operator!=(const Part &lhs, const Part &rhs);
 
 	// Loading and saving a whole MIME message
 	std::string load(std::istream &in, const std::string &parent_boundary = {});
@@ -138,6 +140,9 @@ class Message: public Part {
 	Message();
 };
 
+bool operator==(const Part &lhs, const Part &rhs);
+bool operator!=(const Part &lhs, const Part &rhs);
+
 }
 
 std::ostream &operator<<(std::ostream &out, const Mimesis::Part &part) {
@@ -145,7 +150,7 @@ std::ostream &operator<<(std::ostream &out, const Mimesis::Part &part) {
 	return out;
 }
 
-std::istream &operator>>(std::istream &in, Mimesis::Part part) {
+std::istream &operator>>(std::istream &in, Mimesis::Part &part) {
 	part.load(in);
 	return in;
 }

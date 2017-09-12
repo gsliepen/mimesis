@@ -4,7 +4,8 @@ TESTS = \
 	build-lowlevel.test \
 	build-highlevel.test \
 	headers.test \
-	multipart.test
+	multipart.test \
+	load-save.test
 
 dist_check_SCRIPTS = $(TESTS)
 
@@ -17,7 +18,8 @@ check_PROGRAMS = \
 	build-lowlevel \
 	build-highlevel \
 	headers \
-	multipart
+	multipart \
+	load-save
 
 parse_reproduce_SOURCES = parse-reproduce.cpp
 describe_SOURCES = describe.cpp
@@ -25,6 +27,7 @@ build_lowlevel_SOURCES = build-lowlevel.cpp
 build_highlevel_SOURCES = build-highlevel.cpp
 headers_SOURCES = headers.cpp
 multipart_SOURCES = multipart.cpp
+load_save_SOURCES = load-save.cpp
 
 clean-local:
-	-rm -rf reproduced described built-lowlevel built-highlevel idempotent
+	-rm -rf reproduced described built-lowlevel built-highlevel load-saved idempotent
