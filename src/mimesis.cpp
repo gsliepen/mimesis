@@ -585,24 +585,36 @@ string Part::get_mime_type() const {
 	return get_header_value("Content-Type");
 }
 
-const Part *Part::get_first_matching_part(const string &type) const {
+const Part *Part::get_first_matching_part(function<bool(const Part &)> predicate) const {
 	if (!multipart) {
 		if (headers.empty() && body.empty())
 			return nullptr;
 		if (get_header_value("Content-Disposition") == "attachment")
 			return nullptr;
-		auto my_type = get_mime_type();
-		if (types_match(my_type.empty() ? "text/plain" : my_type, type))
-			return this;
-	} else {
-		for (auto &part: parts) {
-			auto result = part.get_first_matching_part(type);
-			if (result)
-				return result;
-		}
+	}
+
+	if (predicate(*this))
+		return this;
+
+	for (auto &part: parts) {
+		auto result = part.get_first_matching_part(predicate);
+		if (result)
+			return result;
 	}
 
 	return nullptr;
+}
+
+Part *Part::get_first_matching_part(function<bool(const Part &)> predicate) {
+	auto result = ((const Part *)this)->get_first_matching_part(predicate);
+	return const_cast<Part *>(result);
+}
+
+const Part *Part::get_first_matching_part(const string &type) const {
+	return get_first_matching_part([type](const Part &part){
+			auto my_type = part.get_mime_type();
+			return types_match(my_type.empty() ? "text/plain" : my_type, type);
+	});
 }
 
 Part *Part::get_first_matching_part(const string &type) {

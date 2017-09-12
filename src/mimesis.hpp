@@ -18,6 +18,7 @@
 */
 
 #include <iosfwd>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -101,6 +102,8 @@ class Part {
 	void set_plain(const std::string &text);
 	void set_html(const std::string &text);
 
+	const Part *get_first_matching_part(std::function<bool(const Part &)> predicate) const;
+	Part *get_first_matching_part(std::function<bool(const Part &)> predicate);
 	const Part *get_first_matching_part(const std::string &type) const;
 	Part *get_first_matching_part(const std::string &type);
 	std::string get_first_matching_body(const std::string &type) const;
