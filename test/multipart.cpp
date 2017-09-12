@@ -309,4 +309,20 @@ int main(int argc, char *argv[]) {
 	assert(msg.get_attachments().size() == 2);
 	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "message/rfc822");
 	assert(msg.get_attachments()[1]->get_header_value("Content-Type") == "message/rfc822");
+
+	// Transplant parts
+	msg.clear();
+	msg.attach("attachment\r\n", "text/plain", "foo");
+	msg.attach("attachment\r\n", "text/plain", "bar");
+	{
+		Mimesis::Part other;
+		other.set_plain("plain body\r\n");
+		other.set_html("html body\r\n");
+		msg.set_parts(other.get_parts());
+		assert(other.get_parts().size() == 2);
+	}
+	assert(msg.get_parts().size() == 2);
+	assert(msg.get_parts()[0].get_mime_type() == "text/plain");
+	assert(msg.get_parts()[1].get_mime_type() == "text/html");
+
 }

@@ -126,4 +126,18 @@ int main(int argc, char *argv[]) {
 	assert(part.get_headers().empty());
 	assert(part.get_header("foo").empty());
 	assert(part.to_string() == "\r\n");
+
+	// Transplant headers
+	part.clear();
+	part.set_header("From", "me");
+	{
+		Mimesis::Part other;
+		other.set_header("To", "you");
+		other.set_header("From", "us");
+		part.set_headers(other.get_headers());
+		assert(other.get_headers().size() == 2);
+	}
+	assert(part.get_headers().size() == 2);
+	assert(part.get_header("From") == "us");
+	assert(part.get_header("To") == "you");
 }
