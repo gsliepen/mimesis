@@ -703,17 +703,28 @@ string Part::get_text() const {
 
 Part &Part::attach(const Part &attachment) {
 	if (!multipart && body.empty()) {
-		if (attachment.message)
+		if (attachment.message) {
 			set_header("Content-Type", "message/rfc822");
-		else
+			body = attachment.to_string();
+		} else {
 			set_header("Content-Type", attachment.get_header("Content-Type"));
-		body = attachment.to_string();
+			body = attachment.body;
+		}
+		set_header("Content-Disposition", "attachment");
 		return *this;
 	}
 
 	make_multipart("mixed");
-	append_part(attachment);
-	return parts.back();
+	auto &part = append_part();
+	if (attachment.message) {
+		part.set_header("Content-Type", "message/rfc822");
+		part.body = attachment.to_string();
+	} else {
+		part.set_header("Content-Type", attachment.get_header("Content-Type"));
+		part.body = attachment.body;
+	}
+	part.set_header("Content-Disposition", "attachment");
+	return part;
 }
 
 Part &Part::attach(const string &data, const string &type, const string &filename) {
