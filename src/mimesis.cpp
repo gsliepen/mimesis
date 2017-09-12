@@ -655,8 +655,12 @@ Part &Part::set_alternative(const string &subtype, const string &text) {
 		}
 
 		// If there is already a multipart/alternative with text, use that one.
-		part = get_first_matching_part("multipart/alternative");
-		if (part && part->get_first_matching_part("text"))
+		part = get_first_matching_part([](const Part &part){
+				return part.get_mime_type() == "multipart/alternative"
+					&& !part.parts.empty()
+					&& part.get_first_matching_part("text");
+		});
+		if (part)
 			part = &part->append_part();
 
 		// If there is already inline text, make it multipart/alternative.
