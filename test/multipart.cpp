@@ -1,5 +1,6 @@
 #include <cassert>
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 
 #include <mimesis.hpp>
@@ -196,4 +197,116 @@ int main(int argc, char *argv[]) {
 	assert(msg.has_plain() == false);
 	assert(msg.has_html() == true);
 	assert(msg.get_header_value("Content-Type") == "text/html");
+
+	// Add to existing multipart/alternative
+	msg.clear();
+	msg.make_multipart("alternative");
+	msg.set_html("html body\r\n");
+	assert(msg.is_multipart() == true);
+	assert(msg.get_parts().size() == 1);
+	assert(msg.get_parts()[0].get_header_value("Content-Type") == "text/html");
+	msg.clear_html();
+	assert(msg.is_multipart() == false);
+	assert(msg.get_body().empty());
+	assert(msg.get_header_value("Content-Type").empty());
+
+	// Combine with existing text part
+	msg.clear();
+	msg.make_multipart("alternative");
+	msg.set_plain("plain body\r\n");
+	msg.make_multipart("mixed");
+	msg.set_html("html body\r\n");
+	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.get_parts().size() == 1);
+	{
+		auto &alternative = msg.get_parts()[0];
+		assert(alternative.get_header_value("Content-Type") == "multipart/alternative");
+		assert(alternative.get_parts().size() == 2);
+		assert(alternative.get_parts()[0].get_header_value("Content-Type") == "text/plain");
+		assert(alternative.get_parts()[1].get_header_value("Content-Type") == "text/html");
+	}
+
+	// Simplify
+	msg.simplify();
+	assert(msg.get_header_value("Content-Type") == "multipart/alternative");
+	assert(msg.get_parts().size() == 2);
+	assert(msg.get_parts()[0].get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_parts()[1].get_header_value("Content-Type") == "text/html");
+
+	// Overwrite parts
+	msg.set_html("html body 2\r\n");
+	msg.set_plain("plain body 2\r\n");
+	assert(msg.get_parts().size() == 2);
+	assert(msg.get_parts()[0].get_body() == "plain body 2\r\n");
+	assert(msg.get_parts()[1].get_body() == "html body 2\r\n");
+
+	// Flatten
+	assert(msg.flatten() == false);
+	msg.clear_parts();
+	assert(msg.flatten() == true);
+	assert(msg.flatten() == true);
+
+	// Attach from stream
+	msg.clear();
+	{
+		ifstream in("multipart.cpp");
+		msg.attach(in, "text/plain", "attachment.txt");
+	}
+	assert(msg.get_attachments().size() == 1);
+	{
+		auto part = msg.get_attachments()[0];
+		assert(part->get_header_value("Content-Type") == "text/plain");
+		assert(part->get_header_parameter("Content-Disposition", "filename") == "attachment.txt");
+		assert(part->get_body().size() > 4096);
+	}
+
+	// Attach a part
+	msg.clear();
+	{
+		Mimesis::Part part;
+		part.set_header("Content-Type", "text/plain");
+		part.set_body("plain body\r\n");
+		msg.attach(part);
+	}
+	assert(msg.is_multipart() == false);
+	assert(msg.get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_attachments().size() == 1);
+
+	// Attach another part
+	{
+		Mimesis::Part part;
+		part.set_header("Content-Type", "text/html");
+		part.set_body("html body\r\n");
+		msg.attach(part);
+	}
+	assert(msg.is_multipart() == true);
+	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.get_attachments().size() == 2);
+	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "text/plain");
+	assert(msg.get_attachments()[1]->get_header_value("Content-Type") == "text/html");
+
+	// Attach a message
+	msg.clear();
+	{
+		Mimesis::Message msg2;
+		msg2.set_header("From", "me");
+		msg2.set_body("body\r\n");
+		msg.attach(msg2);
+	}
+	assert(msg.is_multipart() == false);
+	assert(msg.get_header_value("Content-Type") == "message/rfc822");
+	assert(msg.get_attachments().size() == 1);
+
+	// Attach another message
+	{
+		Mimesis::Message msg2;
+		msg2.set_header("From", "me");
+		msg2.set_body("body\r\n");
+		msg.attach(msg2);
+	}
+	assert(msg.is_multipart() == true);
+	assert(msg.get_header_value("Content-Type") == "multipart/mixed");
+	assert(msg.get_attachments().size() == 2);
+	assert(msg.get_attachments()[0]->get_header_value("Content-Type") == "message/rfc822");
+	assert(msg.get_attachments()[1]->get_header_value("Content-Type") == "message/rfc822");
 }
