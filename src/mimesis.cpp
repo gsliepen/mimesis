@@ -182,7 +182,7 @@ string Part::load(istream &in, const string &parent_boundary) {
 		if (isspace(line[0])) {
 			if (headers.empty())
 				throw runtime_error("invalid header line");
-			headers.back().second.append("\r\n" + line);
+			headers.back().second.append(line);
 			continue;
 		}
 
