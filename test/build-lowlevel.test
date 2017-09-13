@@ -8,7 +8,7 @@ cd built-lowlevel
 ../build-lowlevel
 cd ..
 
-for input in testcases/*; do
+for input in input-clean/*; do
 	output=built-lowlevel/$(basename $input)
 	cmp $input $output
 done
