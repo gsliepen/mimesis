@@ -7,10 +7,12 @@ TESTS = \
 	multipart.test \
 	load-save.test
 
+EXTRA_DIST = input-clean
+
 dist_check_SCRIPTS = $(TESTS)
 
-AM_CPPFLAGS = -I../src
-LDADD = ../src/libmimesis.la
+AM_CPPFLAGS = -I$(top_srcdir)/src
+LDADD = $(top_builddir)/src/libmimesis.la
 
 check_PROGRAMS = \
 	parse-reproduce \

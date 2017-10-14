@@ -1,13 +1,14 @@
 #include <cassert>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 
 #include <mimesis.hpp>
 
 using namespace std;
 
-int main(int argc, char *argv[]) {
+int main() {
 	Mimesis::Message msg;
 
 	// Set simple body
@@ -250,7 +251,7 @@ int main(int argc, char *argv[]) {
 	// Attach from stream
 	msg.clear();
 	{
-		ifstream in("multipart.cpp");
+		istringstream in("Stream attachment\n");
 		msg.attach(in, "text/plain", "attachment.txt");
 	}
 	assert(msg.get_attachments().size() == 1);
@@ -258,7 +259,7 @@ int main(int argc, char *argv[]) {
 		auto part = msg.get_attachments()[0];
 		assert(part->is_singlepart("text/plain"));
 		assert(part->get_header_parameter("Content-Disposition", "filename") == "attachment.txt");
-		assert(part->get_body().size() > 4096);
+		assert(part->get_body() == "Stream attachment\n");
 	}
 
 	// Attach a part

@@ -23,7 +23,7 @@ static void describe_part(Mimesis::Part &part, int level) {
 			describe_part(child, level + 1);
 }
 
-int main(int argc, char *argv[]) {
+int main() {
 	Mimesis::Part msg;
 	try {
 		msg.load(cin);

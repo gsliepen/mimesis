@@ -8,7 +8,7 @@ cd built-highlevel
 ../build-highlevel
 cd ..
 
-for input in input-clean/*; do
+for input in ${0%/*}/input-clean/*; do
 	output=built-highlevel/$(basename $input)
 	cmp $input $output || echo "warning: $input mismatch" >&2
 done

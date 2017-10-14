@@ -6,7 +6,7 @@
 
 using namespace std;
 
-int main(int argc, char *argv[]) {
+int main() {
 	Mimesis::Part part;
 
 	assert(part.get_headers().empty());

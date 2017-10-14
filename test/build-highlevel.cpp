@@ -5,7 +5,7 @@
 
 using namespace std;
 
-int main(int argc, char *argv[]) {
+int main() {
 	// 01-simple
 	Mimesis::Message msg;
 	msg["From"] = "Some One <some.one@example.org>";

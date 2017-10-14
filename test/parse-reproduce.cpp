@@ -4,7 +4,7 @@
 
 using namespace std;
 
-int main(int argc, char *argv[]) {
+int main() {
 	Mimesis::Part msg;
 	try {
 		msg.load(cin);
