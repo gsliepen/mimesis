@@ -13,5 +13,5 @@ AC_PROG_LIBTOOL
 AC_LANG([C++])
 AX_CXX_COMPILE_STDCXX_11
 
-AC_CONFIG_FILES([Makefile m4/Makefile src/Makefile test/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile test/Makefile])
 AC_OUTPUT
