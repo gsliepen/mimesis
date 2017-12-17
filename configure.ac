@@ -10,8 +10,10 @@ AC_PROG_CXXCPP
 AC_PROG_INSTALL
 AC_PROG_LIBTOOL
 
+PKG_INSTALLDIR
+
 AC_LANG([C++])
 AX_CXX_COMPILE_STDCXX_11
 
-AC_CONFIG_FILES([Makefile src/Makefile test/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile src/mimesis.pc test/Makefile])
 AC_OUTPUT
