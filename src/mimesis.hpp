@@ -153,12 +153,12 @@ bool operator!=(const Part &lhs, const Part &rhs);
 
 }
 
-std::ostream &operator<<(std::ostream &out, const Mimesis::Part &part) {
+inline std::ostream &operator<<(std::ostream &out, const Mimesis::Part &part) {
 	part.save(out);
 	return out;
 }
 
-std::istream &operator>>(std::istream &in, Mimesis::Part &part) {
+inline std::istream &operator>>(std::istream &in, Mimesis::Part &part) {
 	part.load(in);
 	return in;
 }
