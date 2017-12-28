@@ -53,6 +53,13 @@ static string base64_encode(const void *data, size_t len) {
 	return out;
 }
 
+static string unquote(string str) {
+	if (str.size() >= 2 && str[0] == '"' && str[str.size() - 1] == '"')
+		return str.substr(1, str.size() - 2);
+	else
+		return str;
+}
+
 static string generate_boundary() {
 	unsigned int nonce[24 / sizeof(unsigned int)];
 	for (auto &val: nonce)
@@ -140,7 +147,7 @@ static string get_parameter(const string &str, const string &parameter) {
 	if (pos == string::npos)
 		return {};
 
-	return str.substr(pos, str.find(';', pos) - pos);
+	return unquote(str.substr(pos, str.find(';', pos) - pos));
 }
 
 static const string ending[2] = {"\n", "\r\n"};
@@ -161,7 +168,6 @@ Part::Part():
 
 string Part::load(istream &in, const string &parent_boundary) {
 	string line;
-	string content_type;
 	int ncrlf = 0;
 	int nlf = 0;
 
@@ -205,21 +211,19 @@ string Part::load(istream &in, const string &parent_boundary) {
 		while (start < line.size() && isspace(line[start]))
 			start++;
 
-		if (start >= line.size())
-			throw runtime_error("invalid header line");
+		// Empty header values are allowed for most fields.
 
 		auto field = line.substr(0, colon);
 		auto value = line.substr(start);
 
 		headers.emplace_back(field, value);
-
-		if (field == "Content-Type")
-			content_type = value;
 	}
 
 	crlf = ncrlf > nlf;
 
-	if (types_match(content_type, "multipart")) {
+	const string content_type = get_header("Content-Type");
+
+	if (types_match(get_value(content_type), "multipart")) {
 		boundary = get_parameter(content_type, "boundary");
 		if (boundary.empty())
 			throw runtime_error("multipart but no boundary specified");
