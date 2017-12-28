@@ -99,6 +99,39 @@ static string quote(const string &str) {
 	return quoted;
 }
 
+static bool streqi(const string &a, const string &b) {
+	if (a.size() != b.size())
+		return false;
+
+	for (size_t i = 0; i < a.size(); i++)
+		if (tolower(a[i]) != tolower(b[i]))
+			return false;
+
+	return true;
+}
+
+static bool streqi(const string &a, size_t offset_a, size_t len_a, const string &b) {
+	if (min(a.size() - offset_a, len_a) != b.size())
+		return false;
+
+	for (size_t i = 0; i < len_a; i++)
+		if (tolower(a[i + offset_a]) != tolower(b[i]))
+			return false;
+
+	return true;
+}
+
+static bool streqi(const string &a, size_t offset_a, size_t len_a, const string &b, size_t offset_b, size_t len_b) {
+	if (min(a.size() - offset_a, len_a) != min(b.size() - offset_b, len_b))
+		return false;
+
+	for (size_t i = 0; i < min(a.size() - offset_a, len_a); i++)
+		if (tolower(a[i + offset_a]) != tolower(b[i + offset_b]))
+			return false;
+
+	return true;
+}
+
 static string generate_boundary() {
 	unsigned int nonce[24 / sizeof(unsigned int)];
 	for (auto &val: nonce)
@@ -130,9 +163,9 @@ static bool types_match(const std::string &a, const std::string &b) {
 	auto a_slash = a.find('/');
 	auto b_slash = b.find('/');
 	if (a_slash == string::npos || b_slash == string::npos)
-		return !a.compare(0, a_slash, b, 0, b_slash);
+		return streqi(a, 0, a_slash, b, 0, b_slash);
 	else
-		return !a.compare(b);
+		return streqi(a, b);
 }
 
 static void set_value(string &str, const string &value) {
@@ -157,7 +190,7 @@ static pair<size_t, size_t> get_parameter_value_range(const string &str, const s
 		start++;
 		while (isspace(str[start]))
 			start++;
-		if (str.compare(start, parameter.size(), parameter)) {
+		if (!streqi(str, start, parameter.size(), parameter)) {
 			// It's not the wanted parameter.
 			start = str.find('=', start);
 			while (isspace(str[start]))
