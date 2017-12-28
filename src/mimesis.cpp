@@ -18,6 +18,7 @@
 #include "mimesis.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <fstream>
 #include <random>
@@ -53,11 +54,49 @@ static string base64_encode(const void *data, size_t len) {
 	return out;
 }
 
-static string unquote(string str) {
-	if (str.size() >= 2 && str[0] == '"' && str[str.size() - 1] == '"')
-		return str.substr(1, str.size() - 2);
-	else
+static string unquote(const string &str) {
+	if (str.empty() || str[0] != '"')
 		return str;
+
+	string unquoted;
+	int quotes_wanted = 2;
+
+	for (auto &&c: str) {
+		if (c == '"') {
+			if (--quotes_wanted)
+				continue;
+			break;
+		}
+		if (c == '\\')
+			continue;
+		unquoted.push_back(c);
+	}
+
+	return unquoted;
+}
+
+static string quote(const string &str) {
+	bool do_quote = false;
+
+	for (auto &&c: str) {
+		if (isalnum(c) || strchr("!#$%&'*+-/=?^_`{|}~", c))
+			continue;
+		do_quote = true;
+		break;
+	}
+
+	if (!do_quote)
+		return str;
+
+	string quoted = "\"";
+	for (auto &&c: str) {
+		if (c == '\"' || c == '\\')
+			quoted.push_back('\\');
+		quoted.push_back(c);
+	}
+	quoted.push_back('"');
+
+	return quoted;
 }
 
 static string generate_boundary() {
@@ -109,45 +148,84 @@ static string get_value(const string &str) {
 	return str.substr(0, str.find(';'));
 }
 
-static size_t get_parameter_value_start(const string &str, const string &parameter) {
-	size_t pos = 0;
+static pair<size_t, size_t> get_parameter_value_range(const string &str, const string &parameter) {
+	size_t start = 0;
+	size_t end = string::npos;
 
-	while((pos = str.find(';', pos)) != string::npos) {
-		pos++;
-		while (isspace(str[pos]))
-			pos++;
-		if (str.compare(pos, parameter.size(), parameter))
+	// Find a semicolon, which marks the start of a parameter.
+	while((start = str.find(';', start)) != string::npos) {
+		start++;
+		while (isspace(str[start]))
+			start++;
+		if (str.compare(start, parameter.size(), parameter)) {
+			// It's not the wanted parameter.
+			start = str.find('=', start);
+			while (isspace(str[start]))
+				start++;
+			if (str[start] != '=')
+				continue;
+			while (isspace(str[start]))
+				start++;
+			// If it's a quoted parameter, skip over the quoted text.
+			if (str[start] == '"') {
+				start++;
+				while (start < str.size() && str[start] != '"') {
+					if (str[start] == '\\' && str.size() > start - 1)
+						start++;
+					start++;
+				}
+			}
 			continue;
-		pos += parameter.size();
-		while (isspace(str[pos]))
-			pos++;
-		if (str[pos] != '=')
+		}
+		// Skip until we get to the value.
+		start += parameter.size();
+		while (isspace(str[start]))
+			start++;
+		if (str[start] != '=')
 			continue;
-		pos++;
-		while (isspace(str[pos]))
-			pos++;
+		start++;
+		while (isspace(str[start]))
+			start++;
+		end = start;
+		if (str[end] == '"') {
+			// It's a quoted parameter.
+			end++;
+			while (end < str.size() && str[end] != '"') {
+				if (str[end] == '\\' && str.size() > end - 1)
+					end++;
+				end++;
+			}
+		} else {
+			while (end < str.size() && str[end] != ';' && !isspace(str[end]))
+				end++;
+		}
+
 		break;
 	}
 
-	return pos;
+	return make_pair(start, end);
 }
 
 static void set_parameter(string &str, const string &parameter, const string &value) {
-	size_t pos = get_parameter_value_start(str, parameter);
+	auto range = get_parameter_value_range(str, parameter);
+	auto start = range.first;
+	auto end = range.second;
 
-	if (pos == string::npos)
-		str += "; " + parameter + "=" + value;
+	if (start == string::npos)
+		str += "; " + parameter + "=" + quote(value);
 	else
-		str.replace(pos, str.find(';', pos) - pos, value);
+		str.replace(start, end - start, quote(value));
 }
 
 static string get_parameter(const string &str, const string &parameter) {
-	size_t pos = get_parameter_value_start(str, parameter);
+	auto range = get_parameter_value_range(str, parameter);
+	auto start = range.first;
+	auto end = range.second;
 
-	if (pos == string::npos)
+	if (start == string::npos)
 		return {};
 
-	return unquote(str.substr(pos, str.find(';', pos) - pos));
+	return unquote(str.substr(start, end - start));
 }
 
 static const string ending[2] = {"\n", "\r\n"};
