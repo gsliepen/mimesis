@@ -26,6 +26,7 @@
 #include <stdexcept>
 
 #include "base64.hpp"
+#include "charset.hpp"
 #include "quoted-printable.hpp"
 
 using namespace std;
@@ -412,15 +413,24 @@ string Part::to_string() const {
 // Low-level access
 
 string Part::get_body() const {
+	string result;
 	auto encoding = get_header_value("Content-Transfer-Encoding");
-	// TODO: character set conversion
 
 	if (streqi(encoding, "quoted-printable"))
-		return quoted_printable_decode(body);
+		result = quoted_printable_decode(body);
 	if (streqi(encoding, "base64"))
-		return base64_decode(body);
+		result = base64_decode(body);
 	else
-		return body;
+		result = body;
+
+	if (is_mime_type("text")) {
+		auto charset = get_header_parameter("Content-Type", "charset");
+		if (!charset.empty() && !streqi(charset, "utf-8") && !streqi(charset, "us-ascii") && !streqi(charset, "ascii")) {
+			result = charset_decode(charset, result);
+		}
+	}
+
+	return result;
 }
 
 string Part::get_preamble() const {
