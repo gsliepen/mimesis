@@ -1,0 +1,10 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+ 
+Name: mimesis
+Description: C++ library for RFC2822 message parsing and creation
+Version: 0.1
+Libs: -L${libdir} -lmimesis
+Cflags: -I${includedir}/mimesis
