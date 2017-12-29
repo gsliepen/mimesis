@@ -1,11 +1,11 @@
 /* Mimesis -- a library for parsing and creating RFC2822 messages
    Copyright © 2017 Guus Sliepen <guus@lightbts.info>
- 
+
    Mimesis is free software; you can redistribute it and/or modify it under the
    terms of the GNU Lesser General Public License as published by the Free
    Software Foundation, either version 3 of the License, or (at your option)
    any later version.
- 
+
    This program is distributed in the hope that it will be useful, but WITHOUT
    ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
    FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
@@ -25,34 +25,14 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "base64.hpp"
+#include "quoted-printable.hpp"
+
 using namespace std;
 
 namespace Mimesis {
 
 static std::random_device rnd;
-
-static const string base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static string base64_encode(const void *data, size_t len) {
-	string out;
-	size_t outlen = ((len + 2) / 3) * 4;
-	out.reserve(outlen);
-
-	auto in = static_cast<const uint8_t *>(data);
-	size_t i;
-
-	for (i = 0; i < (len / 3) * 3; i += 3) {
-		out.push_back(base64[                        (in[i + 0] >> 2)]);
-		out.push_back(base64[(in[i + 0] << 4 & 63) | (in[i + 1] >> 4)]);
-		out.push_back(base64[(in[i + 1] << 2 & 63) | (in[i + 2] >> 6)]);
-		out.push_back(base64[(in[i + 2] << 0 & 63)                   ]);
-	}
-
-	while (i++ < len)
-		out.push_back('=');
-
-	return out;
-}
 
 static string unquote(const string &str) {
 	if (str.empty() || str[0] != '"')
@@ -432,7 +412,15 @@ string Part::to_string() const {
 // Low-level access
 
 string Part::get_body() const {
-	return body;
+	auto encoding = get_header_value("Content-Transfer-Encoding");
+	// TODO: character set conversion
+
+	if (streqi(encoding, "quoted-printable"))
+		return quoted_printable_decode(body);
+	if (streqi(encoding, "base64"))
+		return base64_decode(body);
+	else
+		return body;
 }
 
 string Part::get_preamble() const {

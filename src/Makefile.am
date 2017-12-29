@@ -5,4 +5,6 @@ pkginclude_HEADERS = mimesis.hpp
 pkgconfig_DATA = mimesis.pc
 
 libmimesis_la_SOURCES = \
-	mimesis.cpp
+	base64.cpp base64.hpp \
+	mimesis.cpp mimesis.hpp \
+	quoted-printable.cpp quoted-printable.hpp
