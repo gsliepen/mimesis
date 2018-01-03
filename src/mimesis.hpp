@@ -17,6 +17,7 @@
    along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <chrono>
 #include <iosfwd>
 #include <functional>
 #include <string>
@@ -92,6 +93,10 @@ class Part {
 
 	void set_header_value(const std::string &field, const std::string &value);
 	void set_header_parameter(const std::string &field, const std::string &paramter, const std::string &value);
+
+	void add_received(const std::string &domain, const std::chrono::system_clock::time_point &date = std::chrono::system_clock::now());
+	void generate_msgid(const std::string &domain);
+	void set_date(const std::chrono::system_clock::time_point &date = std::chrono::system_clock::now());
 
 	// Part manipulation
 	Part &append_part(const Part &part = {});

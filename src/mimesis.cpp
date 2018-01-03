@@ -677,6 +677,36 @@ void Part::set_header_parameter(const string &field, const string &parameter, co
 	append_header(field, "; " + parameter + "=" + value);
 }
 
+static string get_date_string(const chrono::system_clock::time_point &date = chrono::system_clock::now()) {
+	time_t t = chrono::system_clock::to_time_t(date);
+	struct tm tm{};
+	localtime_r(&t, &tm);
+	char str[128];
+	char *oldlocale = setlocale(LC_TIME, "C");
+	size_t result = strftime(str, sizeof str, "%a, %d %b %Y %T %z", &tm);
+	setlocale(LC_TIME, oldlocale);
+	if (result == 0)
+		throw runtime_error("Could not convert date to string");
+	return str;
+}
+
+void Part::add_received(const string &text, const chrono::system_clock::time_point &date) {
+	prepend_header("Received", text + "; " + get_date_string(date));
+}
+
+void Part::generate_msgid(const string &domain) {
+	auto now = chrono::system_clock::now();
+	uint64_t buf[2];
+	buf[0] = chrono::duration_cast<chrono::microseconds>(now.time_since_epoch()).count();
+	buf[1] = ((uint64_t)rnd() << 32) | rnd();
+	string msgid = "<" + base64_encode(string_view(reinterpret_cast<char *>(buf), sizeof buf)) + "@" + domain + ">";
+	set_header("Message-ID", msgid);
+}
+
+void Part::set_date(const chrono::system_clock::time_point &date) {
+	set_header("Date", get_date_string(date));
+}
+
 // Part manipulation
 
 Part &Part::append_part(const Part &part) {
