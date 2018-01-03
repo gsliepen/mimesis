@@ -114,6 +114,51 @@ static bool streqi(const string &a, size_t offset_a, size_t len_a, const string 
 	return true;
 }
 
+static string encode_header(const string &str) {
+	string encoded = "=?utf-8?b?";
+	encoded.append(base64_encode(str));
+	encoded.append("?=");
+	return encoded;
+}
+
+static string decode_header(const string &str) {
+	size_t start = str.find("=?");
+
+	if (start == str.npos)
+		return str;
+
+	size_t from = 0;
+	string decoded;
+
+	while (start != str.npos) {
+		decoded.append(str, from, start - from);
+		size_t encoding = str.find("?", start + 2);
+		if (encoding == str.npos)
+			return str;
+		size_t text = str.find("?", encoding + 1);
+		if (text == str.npos)
+			return str;
+		size_t end = str.find("?=", text + 1);
+		if (end == str.npos)
+			return str;
+		string charset = str.substr(start + 2, encoding - (start + 2));
+		string todo = str.substr(text + 1, end - (text + 1));
+		if (streqi(str, encoding + 1, 1, "q"))
+			todo = quoted_printable_decode(todo);
+		else if (streqi(str, encoding + 1, 1, "b"))
+			todo = base64_decode(todo);
+		else
+			return str;
+		todo = charset_decode(charset, todo);
+		decoded.append(todo);
+
+		from = end + 2;
+		start = str.find("=?", from);
+	}
+
+	return decoded;
+}
+
 static string generate_boundary() {
 	unsigned int nonce[24 / sizeof(unsigned int)];
 	for (auto &val: nonce)
