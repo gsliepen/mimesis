@@ -28,6 +28,7 @@
 #include "base64.hpp"
 #include "charset.hpp"
 #include "quoted-printable.hpp"
+#include "string_view.hpp"
 
 using namespace std;
 
@@ -117,7 +118,7 @@ static string generate_boundary() {
 	unsigned int nonce[24 / sizeof(unsigned int)];
 	for (auto &val: nonce)
 		val = rnd();
-	return base64_encode(nonce, sizeof nonce);
+	return base64_encode(string_view(reinterpret_cast<char *>(nonce), sizeof nonce));
 }
 
 static bool is_boundary(const std::string &line, const std::string &boundary) {

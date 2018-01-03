@@ -18,6 +18,7 @@
 */
 
 #include <string>
+#include "string_view.hpp"
 
-std::string base64_encode(const void *, size_t len);
-std::string base64_decode(const std::string &s);
+std::string base64_encode(std::string_view in);
+std::string base64_decode(std::string_view in);

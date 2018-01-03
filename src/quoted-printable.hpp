@@ -19,4 +19,6 @@
 
 #include <string>
 
-std::string quoted_printable_decode(const std::string &s);
+#include "string_view.hpp"
+
+std::string quoted_printable_decode(std::string_view in);

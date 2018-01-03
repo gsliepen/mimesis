@@ -40,14 +40,14 @@ struct iconv_state {
 	}
 };
 
-string charset_decode(const string &charset, const string &text) {
+string charset_decode(const string &charset, string_view in) {
 	iconv_state cd("utf-8", charset.c_str());
 
 	string out;
-	out.reserve((text.size() * 102) / 100);
+	out.reserve((in.size() * 102) / 100);
 
-	char *inbuf = const_cast<char *>(text.c_str());
-	size_t inbytesleft = text.size();
+	char *inbuf = const_cast<char *>(in.data());
+	size_t inbytesleft = in.size();
 
 	char buf[1024];
 	char *outbuf;

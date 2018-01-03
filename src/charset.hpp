@@ -19,4 +19,6 @@
 
 #include <string>
 
-std::string charset_decode(const std::string &charset, const std::string &text);
+#include "string_view.hpp"
+
+std::string charset_decode(const std::string &charset, std::string_view text);

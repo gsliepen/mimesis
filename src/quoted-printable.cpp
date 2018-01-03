@@ -19,14 +19,14 @@
 
 using namespace std;
 
-string quoted_printable_decode(const string &data) {
+string quoted_printable_decode(string_view in) {
 	string out;
-	out.reserve(data.size());
+	out.reserve(in.size());
 
 	int decode = 0;
 	uint8_t val = 0;
 
-	for (auto &&c: data) {
+	for (auto &&c: in) {
 		if (decode) {
 			if (c >= '0' && c <= '9') {
 				val <<= 4;

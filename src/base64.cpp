@@ -39,36 +39,35 @@ static const char base64_inverse[256] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
-string base64_encode(const void *data, size_t len) {
+string base64_encode(string_view in) {
 	string out;
-	size_t outlen = ((len + 2) / 3) * 4;
+	size_t outlen = ((in.size() + 2) / 3) * 4;
 	out.reserve(outlen);
 
-	auto in = static_cast<const uint8_t *>(data);
 	size_t i;
 
-	for (i = 0; i < (len / 3) * 3; i += 3) {
+	for (i = 0; i < (in.size() / 3) * 3; i += 3) {
 		out.push_back(base64[                        (in[i + 0] >> 2)]);
 		out.push_back(base64[(in[i + 0] << 4 & 63) | (in[i + 1] >> 4)]);
 		out.push_back(base64[(in[i + 1] << 2 & 63) | (in[i + 2] >> 6)]);
 		out.push_back(base64[(in[i + 2] << 0 & 63)                   ]);
 	}
 
-	while (i++ < len)
+	while (i++ < in.size())
 		out.push_back('=');
 
 	return out;
 }
 
-string base64_decode(const string &data) {
+string base64_decode(string_view in) {
 	string out;
-	size_t estimate = (data.size() / 4) * 3;
+	size_t estimate = (in.size() / 4) * 3;
 	out.reserve(estimate);
 
 	int i = 0;
 	uint32_t triplet = 0;
 
-	for(uint8_t c: data) {
+	for(uint8_t c: in) {
 		auto d = base64_inverse[c];
 		if (d == -1) {
 			if (c == '=')
