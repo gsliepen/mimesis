@@ -456,6 +456,10 @@ string Part::to_string() const {
 	return out.str();
 }
 
+void Part::set_crlf(bool value) {
+	crlf = value;
+}
+
 // Low-level access
 
 string Part::get_body() const {
