@@ -45,12 +45,13 @@ string base64_encode(string_view in) {
 	out.reserve(outlen);
 
 	size_t i;
+	const uint8_t *uin = (const uint8_t *)in.data();
 
 	for (i = 0; i < (in.size() / 3) * 3; i += 3) {
-		out.push_back(base64[                        (in[i + 0] >> 2)]);
-		out.push_back(base64[(in[i + 0] << 4 & 63) | (in[i + 1] >> 4)]);
-		out.push_back(base64[(in[i + 1] << 2 & 63) | (in[i + 2] >> 6)]);
-		out.push_back(base64[(in[i + 2] << 0 & 63)                   ]);
+		out.push_back(base64[                         (uin[i + 0] >> 2)]);
+		out.push_back(base64[(uin[i + 0] << 4 & 63) | (uin[i + 1] >> 4)]);
+		out.push_back(base64[(uin[i + 1] << 2 & 63) | (uin[i + 2] >> 6)]);
+		out.push_back(base64[(uin[i + 2] << 0 & 63)                    ]);
 	}
 
 	while (i++ < in.size())
