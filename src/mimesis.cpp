@@ -696,9 +696,10 @@ void Part::add_received(const string &text, const chrono::system_clock::time_poi
 
 void Part::generate_msgid(const string &domain) {
 	auto now = chrono::system_clock::now();
-	uint64_t buf[2];
-	buf[0] = chrono::duration_cast<chrono::microseconds>(now.time_since_epoch()).count();
-	buf[1] = ((uint64_t)rnd() << 32) | rnd();
+	uint64_t buf[3];
+	buf[0] = ((uint64_t)rnd() << 32) | rnd();
+	buf[1] = chrono::duration_cast<chrono::microseconds>(now.time_since_epoch()).count();
+	buf[2] = ((uint64_t)rnd() << 32) | rnd();
 	string msgid = "<" + base64_encode(string_view(reinterpret_cast<char *>(buf), sizeof buf)) + "@" + domain + ">";
 	set_header("Message-ID", msgid);
 }
