@@ -404,6 +404,9 @@ string Part::load(istream &in, const string &parent_boundary) {
 		}
 	}
 
+	if (in.bad())
+		throw runtime_error("error reading message");
+
 	return {};
 }
 
@@ -437,12 +440,19 @@ void Part::save(ostream &out) const {
 
 void Part::load(const string &filename) {
 	ifstream in(filename);
+	if (!in.is_open())
+		throw runtime_error("could not open message file");
 	load(in);
 }
 
 void Part::save(const string &filename) const {
 	ofstream out(filename);
+	if (!out.is_open())
+		throw runtime_error("could not open message file");
 	save(out);
+	out.close();
+	if (out.fail())
+		throw runtime_error("could not write message file");
 }
 
 void Part::from_string(const string &data) {
