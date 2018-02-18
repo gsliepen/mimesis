@@ -10,3 +10,8 @@ libmimesis_la_SOURCES = \
 	mimesis.cpp mimesis.hpp \
 	quoted-printable.cpp quoted-printable.hpp \
 	string_view.hpp
+
+libmimesis_la_LIBS = $(CODE_COVERAGE_LIBS)
+
+AM_CXXFLAGS = $(CODE_COVERAGE_CXXFLAGS)
+AM_CPPFLAGS = $(CODE_COVERAGE_CPPFLAGS)

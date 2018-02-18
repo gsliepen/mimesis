@@ -9,6 +9,7 @@
 !.gitignore
 core
 core.*
+vgcore.*
 ChangeLog
 INSTALL
 Makefile
@@ -28,5 +29,6 @@ Makefile.in
 /libtool
 /ltmain.sh
 /mimesis-*.tar.gz
+/mimesis-*-coverage*
 /missing
 /test-driver
