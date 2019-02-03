@@ -338,12 +338,20 @@ string Part::load(istream &in, const string &parent_boundary) {
 				break;
 			}
 
-			if (line[i] < 33 || static_cast<uint8_t>(line[i]) > 127)
-				throw runtime_error("invalid header line");
+			if (line[i] < 33 || static_cast<uint8_t>(line[i]) > 127) {
+				if (i == 4 && line[i] == ' ' && line.compare(0, 4, "From") == 0 && headers.empty()) {
+					colon = i;
+					break;
+				}
+				throw runtime_error("invalid header line " +  line + std::to_string(i));
+			}
 		}
 
 		if (colon == 0 || colon == string::npos)
 			throw runtime_error("invalid header line");
+
+		if (line[colon] != ':')
+			continue;
 
 		auto start = colon + 1;
 		while (start < line.size() && isspace(line[start]))
