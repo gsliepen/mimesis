@@ -1,3 +1,5 @@
+/* This tests building messages using the low-level functions. */
+
 #include <iostream>
 #include <fstream>
 

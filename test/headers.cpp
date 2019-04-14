@@ -1,3 +1,5 @@
+/* This tests manipulating message headers. */
+
 #include <cassert>
 #include <iostream>
 #include <stdexcept>

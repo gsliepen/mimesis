@@ -1,3 +1,5 @@
+/* This tests manipulating multipart messages. */
+
 #include <cassert>
 #include <iostream>
 #include <fstream>
