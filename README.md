@@ -1,3 +1,22 @@
+关于Mimesis
+-------------
+Mimesis 是一个C++ 11编写的邮件消息解析和创建库.
+支持C++11 ~ 17标准。
+使用它只需要编译lib文件，或者把src下的源码文件放到你的项目中，然后所有的.cpp文件参与编译即可。
+原作者： https://github.com/gsliepen/mimesis
+我的修改：
+- 支持Windows编码，因为Windows上的iconv库不是很好编译
+- 修正了部分可能导致异常的错误
+- 通过宏定义支持wstring，因为Windows上最好用utf16le编码。
+- 添加了解析邮件中的附件的代码示例(load-parse-test.cpp)
+## 编译
+    mkdir build
+    cd build
+    cmake ..
+
+
+
+
 About Mimesis
 -------------
 

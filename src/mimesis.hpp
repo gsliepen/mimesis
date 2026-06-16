@@ -25,7 +25,11 @@
 #include <vector>
 
 namespace Mimesis {
-
+	#ifdef _WIN32
+	std::wstring decode_header(const std::string& str);
+	#else
+	std::string decode_header(const std::string& str);
+	#endif
 class Part {
 	std::vector<std::pair<std::string, std::string>> headers;
 	std::string preamble;
@@ -45,6 +49,7 @@ class Part {
 	friend bool operator!=(const Part &lhs, const Part &rhs);
 
 	// Loading and saving a whole MIME message
+	bool getline_safe(std::istream& in, std::string& line);
 	std::string load(std::istream &in, const std::string &parent_boundary = {});
 	void load(const std::string &filename);
 	void save(std::ostream &out) const;

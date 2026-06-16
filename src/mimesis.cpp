@@ -121,26 +121,32 @@ static string encode_header(const string &str) {
 	return encoded;
 }
 
-static string decode_header(const string &str) {
+static string _decode_header(const string &str) {
 	size_t start = str.find("=?");
-
-	if (start == str.npos)
-		return str;
-
-	size_t from = 0;
 	string decoded;
+	size_t from = 0;
+	if (start == str.npos) {
+		decoded = str;
+		goto end;
+	}
 
 	while (start != str.npos) {
 		decoded.append(str, from, start - from);
 		size_t encoding = str.find("?", start + 2);
-		if (encoding == str.npos)
-			return str;
+		if (encoding == str.npos) {
+			decoded = str;
+			break;
+		}
 		size_t text = str.find("?", encoding + 1);
-		if (text == str.npos)
-			return str;
+		if (text == str.npos) {
+			decoded = str;
+			break;
+		}
 		size_t end = str.find("?=", text + 1);
-		if (end == str.npos)
-			return str;
+		if (end == str.npos) {
+			decoded = str;
+			break;
+		}
 		string charset = str.substr(start + 2, encoding - (start + 2));
 		string todo = str.substr(text + 1, end - (text + 1));
 		if (streqi(str, encoding + 1, 1, "q"))
@@ -148,16 +154,28 @@ static string decode_header(const string &str) {
 		else if (streqi(str, encoding + 1, 1, "b"))
 			todo = base64_decode(todo);
 		else
-			return str;
+		{
+			decoded = str;
+			break;
+		}
 		todo = charset_decode(charset, todo);
 		decoded.append(todo);
 
 		from = end + 2;
 		start = str.find("=?", from);
 	}
-
+end:
 	return decoded;
 }
+#ifdef _WIN32
+wstring decode_header(const string &str){
+	return UTF8ToWString(_decode_header(str));
+}
+#else
+string decode_header(const string& str){
+	return _decode_header(str);
+}
+#endif
 
 static string generate_boundary() {
 	unsigned int nonce[24 / sizeof(unsigned int)];
@@ -220,12 +238,18 @@ static pair<size_t, size_t> get_parameter_value_range(const string &str, const s
 		if (!streqi(str, start, parameter.size(), parameter)) {
 			// It's not the wanted parameter.
 			start = str.find('=', start);
-			while (isspace(str[start]))
+			if (start == string::npos)
+				break;
+			while (isspace(str[start])&&start<str.size())
 				start++;
+			if (start >= str.size())
+					break;
 			if (str[start] != '=')
 				continue;
-			while (isspace(str[start]))
+			while (isspace(str[start])&&start<str.size())
 				start++;
+			if (start >= str.size())
+				break;
 			// If it's a quoted parameter, skip over the quoted text.
 			if (str[start] == '"') {
 				start++;
@@ -244,7 +268,7 @@ static pair<size_t, size_t> get_parameter_value_range(const string &str, const s
 		if (str[start] != '=')
 			continue;
 		start++;
-		while (isspace(str[start]))
+		while (isspace(str[start])&&start<str.size())
 			start++;
 		end = start;
 		if (str[end] == '"') {
@@ -304,12 +328,31 @@ Part::Part():
 
 // Loading and saving a whole MIME message
 
+/// @brief get a string line, safe in rfc2822.  rfc规定一行的最大长度。
+/// @author  fgfxf
+/// @cite https://www.rfc-editor.org/rfc/rfc2822#section-2.1.1
+/// @param in stream
+/// @param line std::string
+/// @return bool
+bool Part::getline_safe(std::istream& in, std::string& line) {
+	if (in.eof()) return false;
+	char buff[1005] = { 0 };
+	in.getline(buff, sizeof(buff));//读取到\n或者最大长度为止
+	//Read until \n Or until the maximum length is reached
+	line.assign(buff);
+	if (line.length() > 999) {
+		throw runtime_error("invalid line length.");
+	}
+	return true;
+}
+
+
 string Part::load(istream &in, const string &parent_boundary) {
 	string line;
 	int ncrlf = 0;
 	int nlf = 0;
 
-	while (getline(in, line)) {
+	while (getline_safe(in, line)) {
 		if (is_boundary(line, parent_boundary))
 			return line;
 
@@ -379,14 +422,14 @@ string Part::load(istream &in, const string &parent_boundary) {
 	}
 
 	if (!multipart) {
-		while (getline(in, line)) {
+		while (getline_safe(in, line)) {
 			if (is_boundary(line, parent_boundary))
 				return line;
 			line.push_back('\n');
 			body.append(line);
 		}
 	} else {
-		while (getline(in, line)) {
+		while (getline_safe(in, line)) {
 			if (is_boundary(line, parent_boundary))
 				return line;
 			if (is_boundary(line, boundary))
@@ -404,7 +447,7 @@ string Part::load(istream &in, const string &parent_boundary) {
 				break;
 		}
 
-		while (getline(in, line)) {
+		while (getline_safe(in, line)) {
 			if (is_boundary(line, parent_boundary))
 				return line;
 			line.push_back('\n');
@@ -702,7 +745,12 @@ void Part::set_header_parameter(const string &field, const string &parameter, co
 static string get_date_string(const chrono::system_clock::time_point &date = chrono::system_clock::now()) {
 	time_t t = chrono::system_clock::to_time_t(date);
 	struct tm tm{};
+#ifdef _WIN32
+	if (localtime_s(&tm, &t) != 0)
+		throw std::runtime_error("Could not convert date to string: localtime_s failed");
+#else
 	localtime_r(&t, &tm);
+#endif
 	char str[128];
 	char *oldlocale = setlocale(LC_TIME, "C");
 	size_t result = strftime(str, sizeof str, "%a, %d %b %Y %T %z", &tm);

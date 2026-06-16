@@ -22,3 +22,10 @@
 #include "string_view.hpp"
 
 std::string charset_decode(const std::string &charset, std::string_view text);
+
+#ifdef _WIN32
+/// @brief utf8 std::string  to wstring utf16 in windows
+/// @param utf8_str ptr
+/// @return wstring
+std::wstring UTF8ToWString(const std::string& utf8_str);
+#endif
