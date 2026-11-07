@@ -213,6 +213,22 @@ TEST_CASE("Binary attachments are base64 encoded") {
 	CHECK(reparsed.get_attachments()[0]->get_header_parameter("Content-Disposition", "filename") == "data.bin");
 }
 
+TEST_CASE("Attachments that are not text keep their exact content") {
+	for (std::string data: {"data", "data\n", "line\nendings\r\n"}) {
+		INFO(data);
+		Mimesis::Message message;
+		message["Subject"] = "x";
+		message.set_plain("See attachment.\r\n");
+		message.attach(data, "application/json", "data.json");
+		CHECK(message.get_attachments()[0]->get_header("Content-Transfer-Encoding") == "base64");
+
+		Mimesis::Message reparsed;
+		reparsed.from_string(message.to_string());
+		REQUIRE(reparsed.get_attachments().size() == 1);
+		CHECK(reparsed.get_attachments()[0]->get_body() == data);
+	}
+}
+
 TEST_CASE("Attachments with non-ASCII filenames use RFC 2231") {
 	Mimesis::Message message;
 	message["Subject"] = "x";

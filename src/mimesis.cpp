@@ -666,6 +666,10 @@ enum class TransferEncoding {
 }
 
 static TransferEncoding choose_transfer_encoding(string_view data, bool is_text) {
+	// Only base64 preserves the exact bytes, including line endings and the absence of a final newline.
+	if (!is_text)
+		return TransferEncoding::base64;
+
 	static constexpr size_t max_line_length = 998;
 	size_t unsafe_bytes = 0;
 	size_t line_length = 0;
@@ -688,7 +692,7 @@ static TransferEncoding choose_transfer_encoding(string_view data, bool is_text)
 		return TransferEncoding::seven_bit;
 
 	// Quoted-printable triples the size of unsafe bytes, base64 grows everything by a third.
-	if (is_text && unsafe_bytes * 5 < data.size())
+	if (unsafe_bytes * 5 < data.size())
 		return TransferEncoding::quoted_printable;
 
 	return TransferEncoding::base64;

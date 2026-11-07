@@ -9,7 +9,7 @@ TEST_CASE("The public API is usable from the shared library") {
 	Mimesis::Message message;
 	message.set_header_value("Subject", "Café");
 	message.set_plain("Hello!\r\n");
-	message.attach("data\r\n", "application/octet-stream", "data.bin");
+	message.attach("data", "application/octet-stream", "data.bin");
 
 	std::stringstream stream;
 	stream << message;
