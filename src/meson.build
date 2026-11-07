@@ -5,6 +5,9 @@ libmimesis = library('mimesis',
 	'mimesis.cpp',
 	'parameters.cpp',
 	'quoted-printable.cpp',
+	# The ABI is not stable before version 1.0, so every release gets its own soname.
+	version: meson.project_version(),
+	soversion: meson.project_version(),
 	install: true,
 )
 
