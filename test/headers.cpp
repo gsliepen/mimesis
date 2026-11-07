@@ -3,6 +3,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <mimesis.hpp>
 
@@ -206,4 +207,72 @@ TEST_CASE("Empty header values are preserved") {
 	part.from_string(message);
 	CHECK(part.get_headers().size() == 2);
 	CHECK(part.to_string() == message);
+}
+
+TEST_CASE("Long header lines are folded when saving") {
+	auto header_lines = [](const std::string &message) {
+		std::vector<std::string> lines;
+		std::istringstream in(message.substr(0, message.find("\r\n\r\n") + 2));
+		for (std::string line; std::getline(in, line);)
+			lines.push_back(line.substr(0, line.size() - 1));
+		return lines;
+	};
+
+	SECTION("encoded words") {
+		std::string subject;
+		for (int i = 0; i < 40; i++)
+			subject += "Grüße ";
+		Mimesis::Message message;
+		message.set_header_value("Subject", subject);
+		message.set_body("body\r\n");
+
+		auto text = message.to_string();
+		for (auto &line: header_lines(text))
+			CHECK(line.size() <= 76);
+
+		Mimesis::Message reparsed;
+		reparsed.from_string(text);
+		CHECK(reparsed == message);
+		CHECK(reparsed.get_header_value("Subject") == subject);
+	}
+
+	SECTION("ASCII text, keeping whitespace") {
+		std::string value;
+		for (int i = 0; i < 30; i++)
+			value += "word  \t";
+		Mimesis::Message message;
+		message["X-Long"] = value;
+
+		auto text = message.to_string();
+		auto lines = header_lines(text);
+		CHECK(lines.size() > 1);
+		for (auto &line: lines)
+			CHECK(line.size() <= 76);
+
+		Mimesis::Message reparsed;
+		reparsed.from_string(text);
+		CHECK(reparsed.get_header("X-Long") == value);
+	}
+
+	SECTION("a word that is too long is not split") {
+		Mimesis::Message message;
+		message["X-Long"] = std::string(100, 'x');
+		CHECK(message.to_string() == "X-Long:\r\n " + std::string(100, 'x') + "\r\n\r\n");
+
+		Mimesis::Message reparsed;
+		reparsed.from_string(message.to_string());
+		CHECK(reparsed.get_header("X-Long") == std::string(100, 'x'));
+	}
+
+	SECTION("values that are already folded are left alone") {
+		Mimesis::Message message;
+		message["X-Folded"] = std::string(80, 'a') + "\r\n " + std::string(80, 'b');
+		CHECK(message.to_string() == "X-Folded: " + std::string(80, 'a') + "\r\n " + std::string(80, 'b') + "\r\n\r\n");
+	}
+}
+
+TEST_CASE("Whitespace-only continuation lines are accepted") {
+	Mimesis::Part part;
+	part.from_string("Subject:\n \n\tvalue\n\nbody\n");
+	CHECK(part.get_header("Subject") == "value");
 }

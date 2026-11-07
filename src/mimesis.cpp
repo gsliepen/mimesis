@@ -114,6 +114,39 @@ static bool is_any_boundary_line(string_view line, const vector<string> &boundar
 	return ranges::any_of(boundaries, [&](const string &boundary) { return is_boundary_line(line, boundary); });
 }
 
+// Folds the header at whitespace, so lines are at most 76 characters long where possible
+// (RFC 2047 section 2). Values that already contain line breaks are left alone.
+static string fold_header(string_view field, string_view value, string_view ending) {
+	static constexpr size_t max_line_length = 76;
+
+	if (value.empty())
+		return format("{}:", field);
+	if (value.find('\n') != string_view::npos)
+		return format("{}: {}", field, value);
+
+	string result;
+	string line = format("{}:", field);
+	string text = format(" {}", value);
+
+	// Each piece consists of whitespace followed by a word; a line break is inserted in front of it if needed.
+	for (size_t begin = 0; begin < text.size();) {
+		auto word = text.find_first_not_of(" \t", begin);
+		auto end = word == string::npos ? text.size() : min(text.find_first_of(" \t", word), text.size());
+		auto piece = string_view(text).substr(begin, end - begin);
+
+		if (!line.empty() && line.size() + piece.size() > max_line_length) {
+			result += line;
+			result += ending;
+			line.clear();
+		}
+
+		line += piece;
+		begin = end;
+	}
+
+	return result + line;
+}
+
 static string format_date(chrono::system_clock::time_point date) {
 	return format("{:%a, %d %b %Y %H:%M:%S} +0000", chrono::floor<chrono::seconds>(date));
 }
@@ -149,7 +182,12 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 		if (line[0] == ' ' || line[0] == '\t') {
 			if (headers.empty())
 				throw runtime_error(format("Invalid header continuation line \"{}\"", line));
-			headers.back().second += line;
+			auto &value = headers.back().second;
+			auto continuation = string_view(line);
+			// The value can start on a continuation line, its leading whitespace is not part of it.
+			if (value.empty())
+				continuation.remove_prefix(min(continuation.find_first_not_of(" \t"), continuation.size()));
+			value += continuation;
 			continue;
 		}
 
@@ -235,10 +273,7 @@ void Part::save(ostream &out) const {
 
 	for (auto &[field, value]: headers) {
 		check_header(field, value);
-		out << field << ':';
-		if (!value.empty())
-			out << ' ' << value;
-		out << ending;
+		out << fold_header(field, value, ending) << ending;
 	}
 
 	out << ending;
