@@ -1,5 +1,5 @@
 /* Mimesis -- a library for parsing and creating RFC2822 messages
-   Copyright © 2017 Guus Sliepen <guus@lightbts.info>
+   Copyright © 2017-2026 Guus Sliepen <guus@lightbts.info>
 
    Mimesis is free software; you can redistribute it and/or modify it under the
    terms of the GNU Lesser General Public License as published by the Free
