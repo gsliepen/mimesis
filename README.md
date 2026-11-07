@@ -60,3 +60,10 @@ release build and install it in `/usr/`, use the following commands:
 
 Distribution packagers that want to override all compiler flags should use
 `--buildtype=plain`. The `DESTDIR` environment variable is supported by Meson.
+
+License
+-------
+
+Mimesis is licensed under the GNU Lesser General Public License, version 3 or
+later. See `LICENSE` for the LGPL, and `COPYING` for the GNU General Public
+License that it builds upon.
