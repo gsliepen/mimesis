@@ -1,1 +1,2 @@
 option('tests', type: 'feature', value: 'auto', description: 'Build the test suite (requires Catch2 v3)')
+option('docs', type: 'feature', value: 'auto', description: 'Generate the API documentation (requires Doxygen)')

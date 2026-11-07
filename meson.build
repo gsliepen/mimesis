@@ -7,3 +7,4 @@ project('Mimesis', 'cpp',
 
 subdir('src')
 subdir('test')
+subdir('doc')

@@ -1,0 +1,24 @@
+# Only settings that differ from Doxygen's defaults.
+
+PROJECT_NAME           = Mimesis
+PROJECT_NUMBER         = @VERSION@
+PROJECT_BRIEF          = "C++ library for RFC 2822 message parsing and creation"
+OUTPUT_DIRECTORY       = @OUTPUT_DIRECTORY@
+
+INPUT                  = @SOURCE_ROOT@/src/mimesis.hpp @SOURCE_ROOT@/README.md
+USE_MDFILE_AS_MAINPAGE = @SOURCE_ROOT@/README.md
+STRIP_FROM_PATH        = @SOURCE_ROOT@/src
+FULL_PATH_NAMES        = YES
+
+JAVADOC_AUTOBRIEF      = YES
+SORT_MEMBER_DOCS       = NO
+HIDE_UNDOC_RELATIONS   = YES
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_UNDOC_ENUM_VAL = YES
+WARN_NO_PARAMDOC       = YES
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+
+GENERATE_LATEX         = NO
+HAVE_DOT               = @HAVE_DOT@

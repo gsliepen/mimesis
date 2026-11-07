@@ -37,6 +37,13 @@ test suite, run:
 
 To build without the test suite, add `-Dtests=disabled` to the setup command.
 
+If Doxygen is installed, the API documentation can be generated with:
+
+    meson compile -C build docs
+
+The HTML documentation will be in `build/doc/html/`. To build and install it
+by default, add `-Ddocs=enabled` to the setup command.
+
 To install the binaries on your system, run:
 
     ninja -C build install
