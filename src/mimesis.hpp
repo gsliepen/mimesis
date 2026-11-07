@@ -29,6 +29,12 @@
 #include <utility>
 #include <vector>
 
+#if defined(__GNUC__)
+#define MIMESIS_EXPORT __attribute__((visibility("default")))
+#else
+#define MIMESIS_EXPORT
+#endif
+
 /// Parsing and building RFC 2822 messages with MIME content.
 ///
 /// Parsing a message, and getting its text and attachments:
@@ -66,7 +72,7 @@ using Header = std::pair<std::string, std::string>;
 /// set_plain() and attach() take care of encoding, character sets and the multipart structure.
 ///
 /// Field names, MIME types and parameter names are case-insensitive.
-class Part {
+class MIMESIS_EXPORT Part {
 	std::vector<Header> headers;
 	std::string preamble;
 	std::string body;
@@ -544,7 +550,7 @@ class Part {
 ///
 /// Unlike a Part, a Message must have headers to be saved, gets a MIME-Version header when the
 /// high-level functions add MIME content, and is attached to other parts as message/rfc822.
-class Message: public Part {
+class MIMESIS_EXPORT Message: public Part {
 	public:
 	/// Creates an empty message.
 	Message();
@@ -554,11 +560,11 @@ class Message: public Part {
 /// \param out The stream to write to.
 /// \param part The part to write.
 /// \return The stream.
-std::ostream &operator<<(std::ostream &out, const Part &part);
+MIMESIS_EXPORT std::ostream &operator<<(std::ostream &out, const Part &part);
 
 /// Reads a part from a stream, see Part::load(std::istream &).
 /// \param in The stream to read from.
 /// \param part The part to read into.
 /// \return The stream.
-std::istream &operator>>(std::istream &in, Part &part);
+MIMESIS_EXPORT std::istream &operator>>(std::istream &in, Part &part);
 }
