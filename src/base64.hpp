@@ -17,8 +17,14 @@
    along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
-std::string base64_encode(std::string_view in);
+namespace Mimesis {
+
+// With a non-zero line_length, the output is split into lines that each end with line_ending.
+std::string base64_encode(std::string_view in, std::size_t line_length = 0, std::string_view line_ending = "\r\n");
 std::string base64_decode(std::string_view in);
+
+}

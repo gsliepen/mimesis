@@ -18,463 +18,278 @@
 #include "mimesis.hpp"
 
 #include <algorithm>
-#include <cctype>
-#include <clocale>
-#include <cstdint>
-#include <cstring>
-#include <ctime>
-#include <iostream>
+#include <format>
 #include <fstream>
+#include <iterator>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "base64.hpp"
 #include "charset.hpp"
+#include "encoded-words.hpp"
+#include "parameters.hpp"
 #include "quoted-printable.hpp"
+#include "string-utils.hpp"
 
 using namespace std;
 
 namespace Mimesis {
 
-static std::random_device rnd;
+static string random_string(size_t length) {
+	static constexpr string_view characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	thread_local mt19937_64 engine = [] {
+		random_device device;
+		seed_seq seed{device(), device(), device(), device(), device(), device(), device(), device()};
+		return mt19937_64(seed);
+	}();
+	uniform_int_distribution<size_t> distribution(0, characters.size() - 1);
 
-static string unquote(const string &str) {
-	if (str.empty() || str[0] != '"')
-		return str;
+	string result;
+	ranges::generate_n(back_inserter(result), length, [&] { return characters[distribution(engine)]; });
+	return result;
+}
 
-	string unquoted;
-	int quotes_wanted = 2;
+static string_view line_ending(bool crlf) {
+	return crlf ? "\r\n" : "\n";
+}
 
-	for (auto &&c: str) {
-		if (c == '"') {
-			if (--quotes_wanted)
-				continue;
-			break;
-		}
-		if (c == '\\')
+// Matches "type/subtype" exactly, or only the type if either side has no subtype.
+static bool types_match(string_view a, string_view b) {
+	a = trim(a);
+	b = trim(b);
+	if (a.find('/') == string_view::npos || b.find('/') == string_view::npos)
+		return iequals(a.substr(0, a.find('/')), b.substr(0, b.find('/')));
+	return iequals(a, b);
+}
+
+static bool has_parameters(string_view field) {
+	return iequals(field, "Content-Type") || iequals(field, "Content-Disposition");
+}
+
+static bool is_content_header(string_view field) {
+	return istarts_with(field, "Content-");
+}
+
+static auto has_field(string_view field) {
+	return [field](const Header &header) { return iequals(header.first, field); };
+}
+
+static bool is_field_name(string_view field) {
+	return !field.empty() && ranges::all_of(field, [](unsigned char c) { return c > 32 && c < 127 && c != ':'; });
+}
+
+static void check_header(string_view field, string_view value) {
+	if (!is_field_name(field))
+		throw invalid_argument(format("Invalid header field name \"{}\"", field));
+
+	// Line breaks are only allowed when followed by whitespace (folding).
+	for (size_t i = 0; i < value.size(); i++) {
+		if (value[i] != '\r' && value[i] != '\n')
 			continue;
-		unquoted.push_back(c);
+		if (value.substr(i).starts_with("\r\n"))
+			i++;
+		bool is_folded = value[i] == '\n' && i + 1 < value.size() && (value[i + 1] == ' ' || value[i + 1] == '\t');
+		if (!is_folded)
+			throw invalid_argument(format("Invalid line break in value of header \"{}\"", field));
 	}
-
-	return unquoted;
 }
 
-static string quote(const string &str) {
-	bool do_quote = false;
-
-	for (auto &&c: str) {
-		if (isalnum(c) || strchr("!#$%&'*+-/=?^_`{|}~", c))
-			continue;
-		do_quote = true;
-		break;
-	}
-
-	if (!do_quote)
-		return str;
-
-	string quoted = "\"";
-	for (auto &&c: str) {
-		if (c == '\"' || c == '\\')
-			quoted.push_back('\\');
-		quoted.push_back(c);
-	}
-	quoted.push_back('"');
-
-	return quoted;
-}
-
-static bool streqi(const string &a, const string &b) {
-	if (a.size() != b.size())
+// The boundary may be followed by "--" and whitespace, including a CR.
+static bool is_boundary_line(string_view line, string_view boundary) {
+	if (!line.starts_with("--") || !line.substr(2).starts_with(boundary))
 		return false;
-
-	for (size_t i = 0; i < a.size(); i++)
-		if (tolower(a[i]) != tolower(b[i]))
-			return false;
-
-	return true;
+	line.remove_prefix(2 + boundary.size());
+	if (line.starts_with("--"))
+		line.remove_prefix(2);
+	return ranges::all_of(line, is_space);
 }
 
-static bool streqi(const string &a, size_t offset_a, size_t len_a, const string &b) {
-	if (min(a.size() - offset_a, len_a) != b.size())
-		return false;
-
-	for (size_t i = 0; i < len_a; i++)
-		if (tolower(a[i + offset_a]) != tolower(b[i]))
-			return false;
-
-	return true;
+static bool is_final_boundary_line(string_view line, string_view boundary) {
+	return is_boundary_line(line, boundary) && line.substr(2 + boundary.size()).starts_with("--");
 }
 
-static bool streqi(const string &a, size_t offset_a, size_t len_a, const string &b, size_t offset_b, size_t len_b) {
-	if (min(a.size() - offset_a, len_a) != min(b.size() - offset_b, len_b))
-		return false;
-
-	for (size_t i = 0; i < min(a.size() - offset_a, len_a); i++)
-		if (tolower(a[i + offset_a]) != tolower(b[i + offset_b]))
-			return false;
-
-	return true;
+static bool is_any_boundary_line(string_view line, const vector<string> &boundaries) {
+	return ranges::any_of(boundaries, [&](const string &boundary) { return is_boundary_line(line, boundary); });
 }
 
-static string encode_header(const string &str) {
-	string encoded = "=?utf-8?b?";
-	encoded.append(base64_encode(str));
-	encoded.append("?=");
-	return encoded;
+static string format_date(chrono::system_clock::time_point date) {
+	return format("{:%a, %d %b %Y %H:%M:%S} +0000", chrono::floor<chrono::seconds>(date));
 }
-
-static string decode_header(const string &str) {
-	size_t start = str.find("=?");
-
-	if (start == str.npos)
-		return str;
-
-	size_t from = 0;
-	string decoded;
-
-	while (start != str.npos) {
-		decoded.append(str, from, start - from);
-		size_t encoding = str.find("?", start + 2);
-		if (encoding == str.npos)
-			return str;
-		size_t text = str.find("?", encoding + 1);
-		if (text == str.npos)
-			return str;
-		size_t end = str.find("?=", text + 1);
-		if (end == str.npos)
-			return str;
-		string charset = str.substr(start + 2, encoding - (start + 2));
-		string todo = str.substr(text + 1, end - (text + 1));
-		if (streqi(str, encoding + 1, 1, "q"))
-			todo = quoted_printable_decode(todo);
-		else if (streqi(str, encoding + 1, 1, "b"))
-			todo = base64_decode(todo);
-		else
-			return str;
-		todo = charset_decode(charset, todo);
-		decoded.append(todo);
-
-		from = end + 2;
-		start = str.find("=?", from);
-	}
-
-	return decoded;
-}
-
-static string generate_boundary() {
-	unsigned int nonce[24 / sizeof(unsigned int)];
-	for (auto &val: nonce)
-		val = rnd();
-	return base64_encode(string_view(reinterpret_cast<char *>(nonce), sizeof nonce));
-}
-
-static bool is_boundary(const std::string &line, const std::string &boundary) {
-	if (boundary.empty())
-		return false;
-
-	if (line.compare(0, 2, "--"))
-		return false;
-
-	if (line.compare(2, boundary.size(), boundary))
-		return false;
-
-	return true;
-}
-
-static bool is_final_boundary(const std::string &line, const std::string &boundary) {
-	if (line.compare(2 + boundary.size(), 2, "--"))
-		return false;
-
-	return is_boundary(line, boundary);
-}
-
-static bool types_match(const std::string &a, const std::string &b) {
-	auto a_slash = a.find('/');
-	auto b_slash = b.find('/');
-	if (a_slash == string::npos || b_slash == string::npos)
-		return streqi(a, 0, a_slash, b, 0, b_slash);
-	else
-		return streqi(a, b);
-}
-
-static void set_value(string &str, const string &value) {
-	size_t semicolon = str.find(';');
-
-	if (semicolon == string::npos)
-		str = value;
-	else
-		str.replace(0, semicolon, value);
-}
-
-static string get_value(const string &str) {
-	return str.substr(0, str.find(';'));
-}
-
-static pair<size_t, size_t> get_parameter_value_range(const string &str, const string &parameter) {
-	size_t start = 0;
-	size_t end = string::npos;
-
-	// Find a semicolon, which marks the start of a parameter.
-	while((start = str.find(';', start)) != string::npos) {
-		start++;
-		while (isspace(str[start]))
-			start++;
-		if (!streqi(str, start, parameter.size(), parameter)) {
-			// It's not the wanted parameter.
-			start = str.find('=', start);
-			while (isspace(str[start]))
-				start++;
-			if (str[start] != '=')
-				continue;
-			while (isspace(str[start]))
-				start++;
-			// If it's a quoted parameter, skip over the quoted text.
-			if (str[start] == '"') {
-				start++;
-				while (start < str.size() && str[start] != '"') {
-					if (str[start] == '\\' && str.size() > start - 1)
-						start++;
-					start++;
-				}
-			}
-			continue;
-		}
-		// Skip until we get to the value.
-		start += parameter.size();
-		while (isspace(str[start]))
-			start++;
-		if (str[start] != '=')
-			continue;
-		start++;
-		while (isspace(str[start]))
-			start++;
-		end = start;
-		if (str[end] == '"') {
-			// It's a quoted parameter.
-			end++;
-			while (end < str.size() && str[end] != '"') {
-				if (str[end] == '\\' && str.size() > end - 1)
-					end++;
-				end++;
-			}
-		} else {
-			while (end < str.size() && str[end] != ';' && !isspace(str[end]))
-				end++;
-		}
-
-		break;
-	}
-
-	return make_pair(start, end);
-}
-
-static void set_parameter(string &str, const string &parameter, const string &value) {
-	auto range = get_parameter_value_range(str, parameter);
-	auto start = range.first;
-	auto end = range.second;
-
-	if (start == string::npos)
-		str += "; " + parameter + "=" + quote(value);
-	else
-		str.replace(start, end - start, quote(value));
-}
-
-static string get_parameter(const string &str, const string &parameter) {
-	auto range = get_parameter_value_range(str, parameter);
-	auto start = range.first;
-	auto end = range.second;
-
-	if (start == string::npos)
-		return {};
-
-	return unquote(str.substr(start, end - start));
-}
-
-static const string ending[2] = {"\n", "\r\n"};
-
-Part::Part():
-		headers(),
-		preamble(),
-		body(),
-		epilogue(),
-		parts(),
-		boundary(),
-		multipart(false),
-		crlf(true),
-		message(false)
-{}
 
 // Loading and saving a whole MIME message
 
-string Part::load(istream &in, const string &parent_boundary) {
+// Returns the boundary line of an enclosing part that ended this part, or an empty string at the end of input.
+string Part::load_part(istream &in, vector<string> &boundaries) {
 	string line;
-	int ncrlf = 0;
-	int nlf = 0;
+	size_t crlf_lines = 0;
+	size_t lf_lines = 0;
+
+	auto append_line = [&](string &destination) {
+		destination += line;
+		if (!in.eof())
+			destination += '\n';
+	};
 
 	while (getline(in, line)) {
-		if (is_boundary(line, parent_boundary))
+		if (is_any_boundary_line(line, boundaries))
 			return line;
 
-		if (line.size() && line.back() == '\r') {
-			ncrlf++;
-			line.erase(line.size() - 1);
+		if (line.ends_with('\r')) {
+			crlf_lines++;
+			line.pop_back();
 		} else {
-			nlf++;
+			lf_lines++;
 		}
 
 		if (line.empty())
 			break;
 
-		if (isspace(line[0])) {
+		if (line[0] == ' ' || line[0] == '\t') {
 			if (headers.empty())
-				throw runtime_error("invalid header line");
-			headers.back().second.append(line);
+				throw runtime_error(format("Invalid header continuation line \"{}\"", line));
+			headers.back().second += line;
 			continue;
 		}
 
-		size_t colon = string::npos;
-
-		for (size_t i = 0; i < line.size(); ++i) {
-			if (line[i] == ':') {
-				colon = i;
-				break;
-			}
-
-			if (line[i] < 33 || static_cast<uint8_t>(line[i]) > 127) {
-				if (i == 4 && line[i] == ' ' && line.compare(0, 4, "From") == 0 && headers.empty()) {
-					colon = i;
-					break;
-				}
-				throw runtime_error("invalid header line " +  line + std::to_string(i));
-			}
-		}
-
-		if (colon == 0 || colon == string::npos)
-			throw runtime_error("invalid header line");
-
-		if (line[colon] != ':')
+		// An mbox "From " line in front of the headers.
+		if (headers.empty() && line.starts_with("From "))
 			continue;
 
-		auto start = colon + 1;
-		while (start < line.size() && isspace(line[start]))
-			start++;
+		auto colon = line.find(':');
+		if (colon == string::npos || !is_field_name(string_view(line).substr(0, colon)))
+			throw runtime_error(format("Invalid header line \"{}\"", line));
 
-		// Empty header values are allowed for most fields.
+		auto value = string_view(line).substr(colon + 1);
+		while (!value.empty() && is_space(value.front()))
+			value.remove_prefix(1);
 
-		auto field = line.substr(0, colon);
-		auto value = line.substr(start);
-
-		headers.emplace_back(field, value);
+		headers.emplace_back(line.substr(0, colon), value);
 	}
 
-	crlf = ncrlf > nlf;
+	crlf = crlf_lines > lf_lines;
 
-	const string content_type = get_header("Content-Type");
-
-	if (types_match(get_value(content_type), "multipart")) {
+	auto content_type = get_header("Content-Type");
+	if (types_match(get_value(content_type), "multipart"))
 		boundary = get_parameter(content_type, "boundary");
-		if (boundary.empty())
-			throw runtime_error("multipart but no boundary specified");
-		multipart = true;
-	} else {
-		multipart = false;
-	}
+	multipart = !boundary.empty();
 
 	if (!multipart) {
 		while (getline(in, line)) {
-			if (is_boundary(line, parent_boundary))
+			if (is_any_boundary_line(line, boundaries))
 				return line;
-			line.push_back('\n');
-			body.append(line);
+			append_line(body);
 		}
-	} else {
-		while (getline(in, line)) {
-			if (is_boundary(line, parent_boundary))
-				return line;
-			if (is_boundary(line, boundary))
-				break;
-			line.push_back('\n');
-			preamble.append(line);
-		}
-
-		while (true) {
-			parts.emplace_back();
-			string last_line = parts.back().load(in, boundary);
-			if (!is_boundary(last_line, boundary))
-				throw runtime_error("invalid boundary");
-			if (is_final_boundary(last_line, boundary))
-				break;
-		}
-
-		while (getline(in, line)) {
-			if (is_boundary(line, parent_boundary))
-				return line;
-			line.push_back('\n');
-			epilogue.append(line);
-		}
+		return {};
 	}
 
-	if (in.bad())
-		throw runtime_error("error reading message");
+	boundaries.push_back(boundary);
+
+	string terminator;
+	while (getline(in, line)) {
+		if (is_any_boundary_line(line, boundaries)) {
+			terminator = line;
+			break;
+		}
+		append_line(preamble);
+	}
+
+	while (is_boundary_line(terminator, boundary) && !is_final_boundary_line(terminator, boundary))
+		terminator = parts.emplace_back().load_part(in, boundaries);
+
+	boundaries.pop_back();
+
+	// The final boundary is missing, the input is truncated or an enclosing part ended.
+	if (!is_final_boundary_line(terminator, boundary))
+		return terminator;
+
+	while (getline(in, line)) {
+		if (is_any_boundary_line(line, boundaries))
+			return line;
+		append_line(epilogue);
+	}
 
 	return {};
 }
 
-void Part::save(ostream &out) const {
-	bool has_headers = false;
-
-	for (auto &header: headers) {
-		if (!header.second.empty()) {
-			out << header.first << ": " << header.second << ending[crlf];
-			has_headers = true;
-		}
-	}
-
-	if (message && !has_headers)
-		throw runtime_error("no headers specified");
-
-	out << ending[crlf];
-
-	if (parts.empty()) {
-		out << body;
-	} else {
-		out << preamble;
-		for (auto &part: parts) {
-			out << "--" << boundary << ending[crlf];
-			part.save(out);
-		}
-		out << "--" << boundary << "--" << ending[crlf];
-		out << epilogue;
-	}
+void Part::load(istream &in) {
+	clear();
+	vector<string> boundaries;
+	load_part(in, boundaries);
+	if (in.bad())
+		throw runtime_error("Error reading message");
 }
 
-void Part::load(const string &filename) {
-	ifstream in(filename);
+bool Part::ends_with_newline() const {
+	if (multipart)
+		return epilogue.empty() || epilogue.ends_with('\n');
+	return body.empty() || body.ends_with('\n');
+}
+
+void Part::save(ostream &out) const {
+	auto ending = line_ending(crlf);
+
+	if (message && headers.empty())
+		throw runtime_error("No headers specified");
+
+	for (auto &[field, value]: headers) {
+		check_header(field, value);
+		out << field << ':';
+		if (!value.empty())
+			out << ' ' << value;
+		out << ending;
+	}
+
+	out << ending;
+
+	if (!multipart) {
+		out << body;
+		return;
+	}
+
+	// Boundaries must start on a new line.
+	out << preamble;
+	bool at_line_start = preamble.empty() || preamble.ends_with('\n');
+	for (auto &part: parts) {
+		if (!at_line_start)
+			out << ending;
+		out << "--" << boundary << ending;
+		part.save(out);
+		at_line_start = part.ends_with_newline();
+	}
+	if (!at_line_start)
+		out << ending;
+	out << "--" << boundary << "--" << ending;
+	out << epilogue;
+}
+
+void Part::load(const filesystem::path &filename) {
+	ifstream in(filename, ios::binary);
 	if (!in.is_open())
-		throw runtime_error("could not open message file");
+		throw runtime_error(format("Could not open message file {}", filename.string()));
 	load(in);
 }
 
-void Part::save(const string &filename) const {
-	ofstream out(filename);
+void Part::save(const filesystem::path &filename) const {
+	ofstream out(filename, ios::binary);
 	if (!out.is_open())
-		throw runtime_error("could not open message file");
+		throw runtime_error(format("Could not open message file {}", filename.string()));
 	save(out);
 	out.close();
 	if (out.fail())
-		throw runtime_error("could not write message file");
+		throw runtime_error(format("Could not write message file {}", filename.string()));
 }
 
-void Part::from_string(const string &data) {
-	istringstream in(data);
+void Part::from_string(string_view data) {
+	istringstream in{string(data)};
 	load(in);
 }
 
 string Part::to_string() const {
 	ostringstream out;
 	save(out);
-	return out.str();
+	return std::move(out).str();
 }
 
 void Part::set_crlf(bool value) {
@@ -484,21 +299,20 @@ void Part::set_crlf(bool value) {
 // Low-level access
 
 string Part::get_body() const {
-	string result;
 	auto encoding = get_header_value("Content-Transfer-Encoding");
+	string result;
 
-	if (streqi(encoding, "quoted-printable"))
+	if (iequals(encoding, "quoted-printable"))
 		result = quoted_printable_decode(body);
-	if (streqi(encoding, "base64"))
+	else if (iequals(encoding, "base64"))
 		result = base64_decode(body);
 	else
 		result = body;
 
 	if (is_mime_type("text")) {
 		auto charset = get_header_parameter("Content-Type", "charset");
-		if (!charset.empty() && !streqi(charset, "utf-8") && !streqi(charset, "us-ascii") && !streqi(charset, "ascii")) {
+		if (!is_utf8_compatible(charset))
 			result = charset_decode(charset, result);
-		}
 	}
 
 	return result;
@@ -524,11 +338,11 @@ const vector<Part> &Part::get_parts() const {
 	return parts;
 }
 
-vector<pair<string, string>> &Part::get_headers() {
+vector<Header> &Part::get_headers() {
 	return headers;
 }
 
-const vector<pair<string, string>> &Part::get_headers() const {
+const vector<Header> &Part::get_headers() const {
 	return headers;
 }
 
@@ -536,45 +350,45 @@ bool Part::is_multipart() const {
 	return multipart;
 }
 
-bool Part::is_multipart(const std::string &subtype) const {
-	return multipart && get_header_value("Content-Type") == "multipart/" + subtype;
+bool Part::is_multipart(string_view subtype) const {
+	return multipart && types_match(get_mime_type(), format("multipart/{}", subtype));
 }
 
 bool Part::is_singlepart() const {
 	return !multipart;
 }
 
-bool Part::is_singlepart(const std::string &type) const {
-	return !multipart && types_match(get_header_value("Content-Type"), type);
+bool Part::is_singlepart(string_view type) const {
+	return !multipart && types_match(get_mime_type(), type);
 }
 
 bool Part::is_attachment() const {
-	return get_header_value("Content-Disposition") == "attachment";
+	return iequals(get_header_value("Content-Disposition"), "attachment");
 }
 
 bool Part::is_inline() const {
-	return get_header_value("Content-Disposition") == "inline";
+	return iequals(get_header_value("Content-Disposition"), "inline");
 }
 
-void Part::set_body(const string &value) {
+void Part::set_body(string_view value) {
 	if (multipart)
 		throw runtime_error("Cannot set body of a multipart message");
 	body = value;
 }
 
-void Part::set_preamble(const string &value) {
+void Part::set_preamble(string_view value) {
 	if (!multipart)
 		throw runtime_error("Cannot set preamble of a non-multipart message");
 	preamble = value;
 }
 
-void Part::set_epilogue(const string &value) {
+void Part::set_epilogue(string_view value) {
 	if (!multipart)
 		throw runtime_error("Cannot set epilogue of a non-multipart message");
 	epilogue = value;
 }
 
-void Part::set_boundary(const std::string &value) {
+void Part::set_boundary(string_view value) {
 	boundary = value;
 	if (has_mime_type())
 		set_header_parameter("Content-Type", "boundary", boundary);
@@ -586,7 +400,7 @@ void Part::set_parts(const vector<Part> &value) {
 	parts = value;
 }
 
-void Part::set_headers(const vector<pair<string, string>> &value) {
+void Part::set_headers(const vector<Header> &value) {
 	headers = value;
 }
 
@@ -604,187 +418,195 @@ void Part::clear_body() {
 	body.clear();
 }
 
-// Header manipulation
+// Raw header manipulation
 
-static bool iequals(const string &a, const string &b) {
-	if (a.size() != b.size())
-		return false;
-
-	for (size_t i = 0; i < a.size(); ++i)
-		if (tolower(a[i]) != tolower(b[i]))
-			return false;
-
-	return true;
+string Part::get_header(string_view field) const {
+	auto it = ranges::find_if(headers, has_field(field));
+	return it == headers.end() ? string{} : it->second;
 }
 
-string Part::get_header(const string &field) const {
-	for (const auto &header: headers)
-		if (iequals(header.first, field))
-			return header.second;
-
-	return {};
-}
-
-void Part::set_header(const string &field, const string &value) {
-	for (auto &header: headers) {
-		if (iequals(header.first, field)) {
-			header.second = value;
-			return;
-		}
+void Part::set_header(string_view field, string_view value) {
+	if (value.empty()) {
+		erase_header(field);
+		return;
 	}
 
-	append_header(field, value);
+	check_header(field, value);
+	auto it = ranges::find_if(headers, has_field(field));
+	if (it == headers.end())
+		headers.emplace_back(field, value);
+	else
+		it->second = value;
 }
 
-string &Part::operator[](const string &field) {
-	for (auto &header: headers)
-		if (iequals(header.first, field))
-			return header.second;
+string &Part::operator[](string_view field) {
+	auto it = ranges::find_if(headers, has_field(field));
+	if (it != headers.end())
+		return it->second;
 
-	append_header(field, {});
-	return headers.back().second;
+	check_header(field, {});
+	return headers.emplace_back(field, string{}).second;
 }
 
-const string &Part::operator[](const string &field) const {
-	for (auto &header: headers)
-		if (iequals(header.first, field))
-			return header.second;
-
-	static string empty_string;
-	return empty_string;
+const string &Part::operator[](string_view field) const {
+	static const string empty_string;
+	auto it = ranges::find_if(headers, has_field(field));
+	return it == headers.end() ? empty_string : it->second;
 }
 
-void Part::append_header(const string &field, const string &value) {
-	headers.push_back(make_pair(field, value));
+void Part::append_header(string_view field, string_view value) {
+	check_header(field, value);
+	headers.emplace_back(field, value);
 }
 
-void Part::prepend_header(const string &field, const string &value) {
-	headers.insert(begin(headers), make_pair(field, value));
+void Part::prepend_header(string_view field, string_view value) {
+	check_header(field, value);
+	headers.emplace(headers.begin(), field, value);
 }
 
-void Part::erase_header(const string &field) {
-	headers.erase(remove_if(begin(headers), end(headers), [&](pair<string, string> &header){
-		return header.first == field;
-	}), end(headers));
+void Part::erase_header(string_view field) {
+	erase_if(headers, has_field(field));
 }
 
 void Part::clear_headers() {
 	headers.clear();
 }
 
-string Part::get_header_value(const string &field) const {
-	return get_value(get_header(field));
+// Decoded header access
+
+string Part::get_header_value(string_view field) const {
+	auto value = get_header(field);
+	if (has_parameters(field))
+		return string(get_value(value));
+	return decode_encoded_words(value);
 }
 
-string Part::get_header_parameter(const string &field, const string &parameter) const {
+void Part::set_header_value(string_view field, string_view value) {
+	if (!has_parameters(field)) {
+		set_header(field, encode_encoded_words(value));
+		return;
+	}
+
+	auto it = ranges::find_if(headers, has_field(field));
+	if (it == headers.end())
+		append_header(field, value);
+	else
+		it->second = set_value(it->second, value);
+}
+
+string Part::get_header_parameter(string_view field, string_view parameter) const {
 	return get_parameter(get_header(field), parameter);
 }
 
-void Part::set_header_value(const string &field, const string &value) {
-	for (auto &header: headers) {
-		if (iequals(header.first, field)) {
-			set_value(header.second, value);
-			return;
-		}
-	}
-
-	append_header(field, value);
+void Part::set_header_parameter(string_view field, string_view parameter, string_view value) {
+	auto it = ranges::find_if(headers, has_field(field));
+	if (it == headers.end())
+		append_header(field, set_parameter({}, parameter, value));
+	else
+		it->second = set_parameter(it->second, parameter, value);
 }
 
-void Part::set_header_parameter(const string &field, const string &parameter, const string &value) {
-	for (auto &header: headers) {
-		if (iequals(header.first, field)) {
-			set_parameter(header.second, parameter, value);
-			return;
-		}
-	}
-
-	append_header(field, "; " + parameter + "=" + value);
+string Part::get_multipart_type() const {
+	if (!multipart)
+		return {};
+	auto type = get_mime_type();
+	return type.substr(min(type.find('/') + 1, type.size()));
 }
 
-static string get_date_string(const chrono::system_clock::time_point &date = chrono::system_clock::now()) {
-	time_t t = chrono::system_clock::to_time_t(date);
-	struct tm tm{};
-	localtime_r(&t, &tm);
-	char str[128];
-	char *oldlocale = setlocale(LC_TIME, "C");
-	size_t result = strftime(str, sizeof str, "%a, %d %b %Y %T %z", &tm);
-	setlocale(LC_TIME, oldlocale);
-	if (result == 0)
-		throw runtime_error("Could not convert date to string");
-	return str;
+void Part::add_received(string_view text, chrono::system_clock::time_point date) {
+	prepend_header("Received", format("{}; {}", text, format_date(date)));
 }
 
-void Part::add_received(const string &text, const chrono::system_clock::time_point &date) {
-	prepend_header("Received", text + "; " + get_date_string(date));
+void Part::generate_msgid(string_view domain) {
+	set_header("Message-ID", format("<{}@{}>", random_string(32), domain));
 }
 
-void Part::generate_msgid(const string &domain) {
-	auto now = chrono::system_clock::now();
-	uint64_t buf[3];
-	buf[0] = ((uint64_t)rnd() << 32) | rnd();
-	buf[1] = chrono::duration_cast<chrono::microseconds>(now.time_since_epoch()).count();
-	buf[2] = ((uint64_t)rnd() << 32) | rnd();
-	string msgid = "<" + base64_encode(string_view(reinterpret_cast<char *>(buf), sizeof buf)) + "@" + domain + ">";
-	set_header("Message-ID", msgid);
-}
-
-void Part::set_date(const chrono::system_clock::time_point &date) {
-	set_header("Date", get_date_string(date));
+void Part::set_date(chrono::system_clock::time_point date) {
+	set_header("Date", format_date(date));
 }
 
 // Part manipulation
 
+void Part::erase_content_headers() {
+	erase_if(headers, [](auto &header) { return is_content_header(header.first); });
+}
+
+// Replaces the destination's Content-* headers with ours.
+void Part::move_content_headers_to(Part &destination) {
+	destination.erase_content_headers();
+	ranges::copy_if(headers, back_inserter(destination.headers), is_content_header, &Header::first);
+	erase_content_headers();
+}
+
+void Part::copy_content_from(const Part &source) {
+	erase_content_headers();
+	ranges::copy_if(source.headers, back_inserter(headers), is_content_header, &Header::first);
+	preamble = source.preamble;
+	body = source.body;
+	epilogue = source.epilogue;
+	parts = source.parts;
+	boundary = source.boundary;
+	multipart = source.multipart;
+}
+
+void Part::add_mime_version() {
+	if (message)
+		set_header("MIME-Version", "1.0");
+}
+
+Part &Part::append_part() {
+	return parts.emplace_back();
+}
+
 Part &Part::append_part(const Part &part) {
-	parts.push_back(part);
-	return parts.back();
+	return parts.emplace_back(part);
+}
+
+Part &Part::prepend_part() {
+	return *parts.emplace(parts.begin());
 }
 
 Part &Part::prepend_part(const Part &part) {
-	parts.insert(begin(parts), part);
-	return parts.front();
+	return *parts.insert(parts.begin(), part);
 }
 
 void Part::clear_parts() {
 	parts.clear();
 }
 
-void Part::make_multipart(const string &subtype, const string &suggested_boundary) {
+void Part::make_multipart(string_view subtype, string_view suggested_boundary) {
 	if (multipart) {
 		if (is_multipart(subtype))
 			return;
 		Part part;
-		part.preamble = move(preamble);
-		part.epilogue = move(epilogue);
-		part.parts = move(parts);
-		part.boundary = move(boundary);
+		part.preamble = exchange(preamble, {});
+		part.epilogue = exchange(epilogue, {});
+		part.parts = exchange(parts, {});
+		part.boundary = exchange(boundary, {});
 		part.multipart = true;
-		part.set_header("Content-Type", get_header("Content-Type"));
-		part.set_header("Content-Disposition", get_header("Content-Disposition"));
-		erase_header("Content-Disposition");
 		part.crlf = crlf;
-		parts.emplace_back(move(part));
+		move_content_headers_to(part);
+		parts.push_back(std::move(part));
 	} else {
 		multipart = true;
+		add_mime_version();
 
-		if (message)
-			set_header("MIME-Version", "1.0");
-
-		if (!body.empty()) {
+		if (body.empty()) {
+			erase_content_headers();
+		} else {
 			auto &part = append_part();
-			part.set_header("Content-Type", get_header("Content-Type"));
-			part.set_header("Content-Disposition", get_header("Content-Disposition"));
-			erase_header("Content-Disposition");
-			part.body = move(body);
+			part.crlf = crlf;
+			move_content_headers_to(part);
+			part.body = exchange(body, {});
 		}
 	}
 
 	if (!suggested_boundary.empty())
-		set_boundary(suggested_boundary);
+		boundary = suggested_boundary;
 	if (boundary.empty())
-		boundary = generate_boundary();
+		boundary = random_string(32);
 
-	set_header("Content-Type", "multipart/" + subtype + "; boundary=" + boundary);
+	set_header("Content-Type", format("multipart/{}; boundary={}", subtype, quote_token(boundary)));
 }
 
 bool Part::flatten() {
@@ -792,6 +614,10 @@ bool Part::flatten() {
 		return true;
 
 	if (parts.empty()) {
+		erase_content_headers();
+		preamble.clear();
+		epilogue.clear();
+		boundary.clear();
 		multipart = false;
 		return true;
 	}
@@ -799,17 +625,14 @@ bool Part::flatten() {
 	if (parts.size() > 1)
 		return false;
 
-	auto &part = parts.front();
-	set_header("Content-Type", part.get_header("Content-Type"));
-	set_header("Content-Disposition", part.get_header("Content-Disposition"));
-
-	if (part.multipart) {
-		parts = move(part.parts);
-	} else {
-		multipart = false;
-		set_body(part.get_body());
-		parts.clear();
-	}
+	auto child = std::move(parts.front());
+	child.move_content_headers_to(*this);
+	preamble = std::move(child.preamble);
+	body = std::move(child.body);
+	epilogue = std::move(child.epilogue);
+	parts = std::move(child.parts);
+	boundary = std::move(child.boundary);
+	multipart = child.multipart;
 
 	return true;
 }
@@ -820,11 +643,11 @@ string Part::get_mime_type() const {
 	return get_header_value("Content-Type");
 }
 
-void Part::set_mime_type(const std::string &type) {
-	return set_header_value("Content-Type", type);
+void Part::set_mime_type(string_view type) {
+	set_header_value("Content-Type", type);
 }
 
-bool Part::is_mime_type(const std::string &type) const {
+bool Part::is_mime_type(string_view type) const {
 	return types_match(get_mime_type(), type);
 }
 
@@ -832,57 +655,119 @@ bool Part::has_mime_type() const {
 	return !get_mime_type().empty();
 }
 
-const Part *Part::get_first_matching_part(function<bool(const Part &)> predicate) const {
-	if (!multipart) {
-		if (headers.empty() && body.empty())
+namespace {
+
+enum class TransferEncoding {
+	seven_bit,
+	quoted_printable,
+	base64,
+};
+
+}
+
+static TransferEncoding choose_transfer_encoding(string_view data, bool is_text) {
+	static constexpr size_t max_line_length = 998;
+	size_t unsafe_bytes = 0;
+	size_t line_length = 0;
+	bool has_long_line = false;
+
+	for (size_t i = 0; i < data.size(); i++) {
+		auto c = static_cast<unsigned char>(data[i]);
+		bool is_line_break = c == '\n' || (c == '\r' && i + 1 < data.size() && data[i + 1] == '\n');
+		if (c == '\n') {
+			line_length = 0;
+			continue;
+		}
+		if (!is_line_break && (c >= 128 || c == 0 || c == '\r'))
+			unsafe_bytes++;
+		if (++line_length > max_line_length)
+			has_long_line = true;
+	}
+
+	if (!unsafe_bytes && !has_long_line)
+		return TransferEncoding::seven_bit;
+
+	// Quoted-printable triples the size of unsafe bytes, base64 grows everything by a third.
+	if (is_text && unsafe_bytes * 5 < data.size())
+		return TransferEncoding::quoted_printable;
+
+	return TransferEncoding::base64;
+}
+
+void Part::set_encoded_body(string_view data, bool is_text) {
+	static constexpr size_t base64_line_length = 76;
+	auto ending = line_ending(crlf);
+
+	switch (choose_transfer_encoding(data, is_text)) {
+	case TransferEncoding::seven_bit:
+		erase_header("Content-Transfer-Encoding");
+		body = data;
+		break;
+	case TransferEncoding::quoted_printable:
+		set_header("Content-Transfer-Encoding", "quoted-printable");
+		body = quoted_printable_encode(data, ending);
+		break;
+	case TransferEncoding::base64:
+		set_header("Content-Transfer-Encoding", "base64");
+		body = base64_encode(data, base64_line_length, ending);
+		break;
+	}
+}
+
+template <typename Self>
+Self *Part::find_first_matching_part(Self &self, const function<bool(const Part &)> &predicate) {
+	if (!self.multipart) {
+		if (self.body.empty() && !self.has_mime_type())
 			return nullptr;
-		if (is_attachment())
+		if (self.is_attachment())
 			return nullptr;
 	}
 
-	if (predicate(*this))
-		return this;
+	if (predicate(self))
+		return &self;
 
-	for (auto &part: parts) {
-		auto result = part.get_first_matching_part(predicate);
-		if (result)
+	for (auto &part: self.parts)
+		if (auto result = find_first_matching_part(part, predicate))
 			return result;
-	}
 
 	return nullptr;
 }
 
-Part *Part::get_first_matching_part(function<bool(const Part &)> predicate) {
-	auto result = ((const Part *)this)->get_first_matching_part(predicate);
-	return const_cast<Part *>(result);
+const Part *Part::get_first_matching_part(const function<bool(const Part &)> &predicate) const {
+	return find_first_matching_part(*this, predicate);
 }
 
-const Part *Part::get_first_matching_part(const string &type) const {
-	return get_first_matching_part([type](const Part &part){
-			auto my_type = part.get_mime_type();
-			return types_match(my_type.empty() ? "text/plain" : my_type, type);
-	});
+Part *Part::get_first_matching_part(const function<bool(const Part &)> &predicate) {
+	return find_first_matching_part(*this, predicate);
 }
 
-Part *Part::get_first_matching_part(const string &type) {
-	auto result = ((const Part *)this)->get_first_matching_part(type);
-	return const_cast<Part *>(result);
+static function<bool(const Part &)> has_type(string_view type) {
+	return [type = string(type)](const Part &part) {
+		return types_match(part.has_mime_type() ? part.get_mime_type() : "text/plain", type);
+	};
 }
 
-string Part::get_first_matching_body(const string &type) const {
-	const auto &part = get_first_matching_part(type);
-	if (part)
-		return part->get_body();
-	else
-		return {};
+const Part *Part::get_first_matching_part(string_view type) const {
+	return find_first_matching_part(*this, has_type(type));
 }
 
-Part &Part::set_alternative(const string &subtype, const string &text) {
-	string type = "text/" + subtype;
+Part *Part::get_first_matching_part(string_view type) {
+	return find_first_matching_part(*this, has_type(type));
+}
+
+string Part::get_first_matching_body(string_view type) const {
+	auto part = get_first_matching_part(type);
+	return part ? part->get_body() : string{};
+}
+
+Part &Part::set_alternative(string_view subtype, string_view text) {
+	auto type = format("text/{}", subtype);
 	Part *part = nullptr;
 
-	// Try to put it in the body first.
+	add_mime_version();
+
 	if (!multipart) {
+		// Try to put it in the body first.
 		if (body.empty() || is_mime_type(type)) {
 			part = this;
 		} else if (is_mime_type("text") && !is_attachment()) {
@@ -893,25 +778,19 @@ Part &Part::set_alternative(const string &subtype, const string &text) {
 			part = &prepend_part();
 		}
 	} else {
-		// If there is already a text/plain part, use that one.
+		// If there is already a part of this type, replace it.
 		part = get_first_matching_part(type);
-		if (part) {
-			part->set_mime_type(type);
-			part->set_body(text);
-			return *part;
+
+		// If there is already a multipart/alternative with text, add to that.
+		if (!part) {
+			part = get_first_matching_part([](const Part &candidate) {
+				return candidate.is_multipart("alternative") && candidate.get_first_matching_part("text");
+			});
+			if (part)
+				part = &part->append_part();
 		}
 
-		// If there is already a multipart/alternative with text, use that one.
-		part = get_first_matching_part([](const Part &part){
-				return part.is_multipart("alternative")
-					&& !part.parts.empty()
-					&& part.get_first_matching_part("text");
-		});
-		if (part)
-			part = &part->append_part();
-
 		// If there is already inline text, make it multipart/alternative.
-
 		if (!part && (part = get_first_matching_part("text"))) {
 			part->make_multipart("alternative");
 			part = &part->append_part();
@@ -922,18 +801,19 @@ Part &Part::set_alternative(const string &subtype, const string &text) {
 			part = &prepend_part();
 	}
 
-	part->set_header("Content-Type", type);
-	part->set_body(text);
+	part->erase_content_headers();
+	part->set_header("Content-Type", format("{}; charset=utf-8", type));
+	part->set_encoded_body(text, true);
 
 	return *part;
 }
 
-void Part::set_plain(const string &text) {
+void Part::set_plain(string_view text) {
 	set_alternative("plain", text);
 }
 
-void Part::set_html(const string &html) {
-	set_alternative("html", html);
+void Part::set_html(string_view text) {
+	set_alternative("html", text);
 }
 
 string Part::get_plain() const {
@@ -949,72 +829,61 @@ string Part::get_text() const {
 }
 
 Part &Part::attach(const Part &attachment) {
-	if (!multipart && body.empty()) {
-		if (attachment.message) {
-			set_header("Content-Type", "message/rfc822");
-			body = attachment.to_string();
-		} else {
-			set_header("Content-Type", attachment.get_header("Content-Type"));
-			body = attachment.body;
-		}
-		set_header("Content-Disposition", "attachment");
-		return *this;
-	}
-
-	make_multipart("mixed");
-	auto &part = append_part();
-	if (attachment.message) {
-		part.set_header("Content-Type", "message/rfc822");
-		part.body = attachment.to_string();
+	Part *part = this;
+	if (multipart || !body.empty()) {
+		make_multipart("mixed");
+		part = &append_part();
 	} else {
-		part.set_header("Content-Type", attachment.get_header("Content-Type"));
-		part.body = attachment.body;
+		add_mime_version();
 	}
-	part.set_header("Content-Disposition", "attachment");
-	return part;
+
+	if (attachment.message) {
+		part->erase_content_headers();
+		part->set_header("Content-Type", "message/rfc822");
+		part->body = attachment.to_string();
+	} else {
+		part->copy_content_from(attachment);
+	}
+
+	if (part->get_header("Content-Disposition").empty())
+		part->set_header("Content-Disposition", "attachment");
+	else
+		part->set_header_value("Content-Disposition", "attachment");
+
+	return *part;
 }
 
-Part &Part::attach(const string &data, const string &type, const string &filename) {
-	if (!multipart && body.empty()) {
-		set_header("Content-Type", type.empty() ? "text/plain" : type);
-		set_header("Content-Disposition", "attachment");
-		if (!filename.empty())
-			set_header_parameter("Content-Disposition", "filename", filename);
-		body = data;
-		return *this;
+Part &Part::attach(string_view data, string_view type, string_view filename) {
+	Part *part = this;
+	if (multipart || !body.empty()) {
+		make_multipart("mixed");
+		part = &append_part();
+	} else {
+		add_mime_version();
 	}
 
-	make_multipart("mixed");
-	auto &part = append_part();
-	part.set_header("Content-Type", type.empty() ? "text/plain" : type);
-	part.set_header("Content-Disposition", "attachment");
+	part->erase_content_headers();
+	part->set_header("Content-Type", type.empty() ? "text/plain" : type);
+	part->set_header("Content-Disposition", "attachment");
 	if (!filename.empty())
-		part.set_header_parameter("Content-Disposition", "filename", filename);
-	part.set_body(data);
-	return part;
+		part->set_header_parameter("Content-Disposition", "filename", filename);
+	part->set_encoded_body(data, part->is_mime_type("text"));
+
+	return *part;
 }
 
-Part &Part::attach(istream &in, const string &type, const string &filename) {
-	auto &part = attach("", type, filename);
-	char buffer[4096];
-	while (in.read(buffer, sizeof(buffer)))
-		part.body.append(buffer, sizeof(buffer));
-	part.body.append(buffer, in.gcount());
-	return part;
+Part &Part::attach(istream &in, string_view type, string_view filename) {
+	string data{istreambuf_iterator<char>(in), istreambuf_iterator<char>()};
+	return attach(data, type, filename);
 }
 
 vector<const Part *> Part::get_attachments() const {
+	if (!multipart && is_attachment())
+		return {this};
+
 	vector<const Part *> attachments;
-
-	if (!multipart && get_header_value("Content-Disposition") == "attachment") {
-		attachments.push_back(this);
-		return attachments;
-	}
-
-	for (auto &part: parts) {
-		auto sub = part.get_attachments();
-		attachments.insert(end(attachments), begin(sub), end(sub));
-	}
+	for (auto &part: parts)
+		ranges::copy(part.get_attachments(), back_inserter(attachments));
 
 	return attachments;
 }
@@ -1026,46 +895,46 @@ void Part::simplify() {
 	for (auto &part: parts)
 		part.simplify();
 
-	parts.erase(remove_if(begin(parts), end(parts), [&](Part &part) {
+	erase_if(parts, [](const Part &part) {
 		return part.headers.empty() && part.body.empty();
-	}), end(parts));
+	});
 
 	if (parts.empty()) {
-		if (message) {
-			erase_header("Content-Type");
-			erase_header("Content-Disposition");
-			multipart = false;
-		} else {
+		if (message)
+			flatten();
+		else
 			clear();
-		}
 	} else if (parts.size() == 1) {
 		flatten();
 	}
 }
 
 void Part::clear_attachments() {
-	if (!multipart) {
-		if (get_header_value("Content-Disposition") == "attachment") {
-			if (message) {
-				erase_header("Content-Type");
-				erase_header("Content-Disposition");
-				body.clear();
-			} else {
-				clear();
-			}
-		}
-	} else {
+	if (multipart) {
 		for (auto &part: parts)
 			part.clear_attachments();
 		simplify();
+	} else if (is_attachment()) {
+		if (message) {
+			erase_content_headers();
+			body.clear();
+		} else {
+			clear();
+		}
 	}
 }
 
-void Part::clear_alternative(const string &type) {
+void Part::clear_alternative(string_view type) {
 	bool cleared = false;
-	Part *part;
-	while((part = get_first_matching_part(type))) {
-		part->clear();
+
+	while (auto part = get_first_matching_part(type)) {
+		// Keep the headers of the message itself.
+		if (part->message) {
+			part->erase_content_headers();
+			part->body.clear();
+		} else {
+			part->clear();
+		}
 		cleared = true;
 	}
 
@@ -1098,14 +967,7 @@ bool Part::has_html() const {
 }
 
 bool Part::has_attachments() const {
-	if (is_attachment())
-		return true;
-
-	for (auto &part: parts)
-		if (part.has_attachments())
-			return true;
-
-	return false;
+	return is_attachment() || ranges::any_of(parts, &Part::has_attachments);
 }
 
 // RFC2822 messages
@@ -1114,21 +976,14 @@ Message::Message() {
 	message = true;
 }
 
-// Comparison
-
-bool operator==(const Part &lhs, const Part &rhs) {
-	return lhs.crlf == rhs.crlf
-		&& lhs.multipart == rhs.multipart
-		&& lhs.preamble == rhs.preamble
-		&& lhs.body == rhs.body
-		&& lhs.epilogue == rhs.epilogue
-		&& lhs.boundary == rhs.boundary
-		&& lhs.headers == rhs.headers
-		&& lhs.parts == rhs.parts;
+ostream &operator<<(ostream &out, const Part &part) {
+	part.save(out);
+	return out;
 }
 
-bool operator!=(const Part &lhs, const Part &rhs) {
-	return !(lhs == rhs);
+istream &operator>>(istream &in, Part &part) {
+	part.load(in);
+	return in;
 }
 
 }

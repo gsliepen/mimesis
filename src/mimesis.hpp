@@ -18,38 +18,51 @@
 */
 
 #include <chrono>
-#include <iosfwd>
+#include <filesystem>
 #include <functional>
+#include <iosfwd>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace Mimesis {
 
+using Header = std::pair<std::string, std::string>;
+
 class Part {
-	std::vector<std::pair<std::string, std::string>> headers;
+	std::vector<Header> headers;
 	std::string preamble;
 	std::string body;
 	std::string epilogue;
 	std::vector<Part> parts;
 	std::string boundary;
-	bool multipart;
-	bool crlf;
+	bool multipart = false;
+	bool crlf = true;
+
+	std::string load_part(std::istream &in, std::vector<std::string> &boundaries);
+	void move_content_headers_to(Part &destination);
+	void erase_content_headers();
+	void copy_content_from(const Part &source);
+	void set_encoded_body(std::string_view data, bool is_text);
+	void add_mime_version();
+	bool ends_with_newline() const;
+
+	template <typename Self>
+	static Self *find_first_matching_part(Self &self, const std::function<bool(const Part &)> &predicate);
 
 	protected:
-	bool message;
+	bool message = false;
 
 	public:
-	Part();
-	friend bool operator==(const Part &lhs, const Part &rhs);
-	friend bool operator!=(const Part &lhs, const Part &rhs);
+	bool operator==(const Part &other) const = default;
 
 	// Loading and saving a whole MIME message
-	std::string load(std::istream &in, const std::string &parent_boundary = {});
-	void load(const std::string &filename);
+	void load(std::istream &in);
+	void load(const std::filesystem::path &filename);
 	void save(std::ostream &out) const;
-	void save(const std::string &filename) const;
-	void from_string(const std::string &data);
+	void save(const std::filesystem::path &filename) const;
+	void from_string(std::string_view data);
 	std::string to_string() const;
 
 	// Low-level access
@@ -59,77 +72,81 @@ class Part {
 	std::string get_boundary() const;
 	std::vector<Part> &get_parts();
 	const std::vector<Part> &get_parts() const;
-	std::vector<std::pair<std::string, std::string>> &get_headers();
-	const std::vector<std::pair<std::string, std::string>> &get_headers() const;
+	std::vector<Header> &get_headers();
+	const std::vector<Header> &get_headers() const;
 	bool is_multipart() const;
-	bool is_multipart(const std::string &subtype) const;
+	bool is_multipart(std::string_view subtype) const;
 	bool is_singlepart() const;
-	bool is_singlepart(const std::string &type) const;
+	bool is_singlepart(std::string_view type) const;
 
-	void set_body(const std::string &body);
-	void set_preamble(const std::string &preamble);
-	void set_epilogue(const std::string &epilogue);
-	void set_boundary(const std::string &boundary);
+	void set_body(std::string_view body);
+	void set_preamble(std::string_view preamble);
+	void set_epilogue(std::string_view epilogue);
+	void set_boundary(std::string_view boundary);
 	void set_parts(const std::vector<Part> &parts);
-	void set_headers(const std::vector<std::pair<std::string, std::string>> &headers);
+	void set_headers(const std::vector<Header> &headers);
 
 	void clear();
 	void clear_body();
 
-	// Header manipulation
-	std::string get_header(const std::string &field) const;
-	void set_header(const std::string &field, const std::string &value);
-	std::string &operator[](const std::string &field);
-	const std::string &operator[](const std::string &field) const;
-	void append_header(const std::string &field, const std::string &value);
-	void prepend_header(const std::string &field, const std::string &value);
-	void erase_header(const std::string &field);
+	// Raw header manipulation
+	std::string get_header(std::string_view field) const;
+	// Setting an empty value erases the header.
+	void set_header(std::string_view field, std::string_view value);
+	std::string &operator[](std::string_view field);
+	const std::string &operator[](std::string_view field) const;
+	void append_header(std::string_view field, std::string_view value);
+	void prepend_header(std::string_view field, std::string_view value);
+	void erase_header(std::string_view field);
 	void clear_headers();
 
-	// Specialized header functions
+	// Decoded header access. For Content-Type and Content-Disposition, the value is the part before
+	// the parameters. For other fields it is the whole value, with RFC 2047 encoded words handled.
+	std::string get_header_value(std::string_view field) const;
+	void set_header_value(std::string_view field, std::string_view value);
+	std::string get_header_parameter(std::string_view field, std::string_view parameter) const;
+	void set_header_parameter(std::string_view field, std::string_view parameter, std::string_view value);
+
 	std::string get_multipart_type() const;
-	std::string get_header_value(const std::string &field) const;
-	std::string get_header_parameter(const std::string &field, const std::string &parameter) const;
 
-	void set_header_value(const std::string &field, const std::string &value);
-	void set_header_parameter(const std::string &field, const std::string &paramter, const std::string &value);
-
-	void add_received(const std::string &domain, const std::chrono::system_clock::time_point &date = std::chrono::system_clock::now());
-	void generate_msgid(const std::string &domain);
-	void set_date(const std::chrono::system_clock::time_point &date = std::chrono::system_clock::now());
+	void add_received(std::string_view text, std::chrono::system_clock::time_point date = std::chrono::system_clock::now());
+	void generate_msgid(std::string_view domain);
+	void set_date(std::chrono::system_clock::time_point date = std::chrono::system_clock::now());
 
 	// Part manipulation
-	Part &append_part(const Part &part = {});
-	Part &prepend_part(const Part &part = {});
+	Part &append_part();
+	Part &append_part(const Part &part);
+	Part &prepend_part();
+	Part &prepend_part(const Part &part);
 	void clear_parts();
-	void make_multipart(const std::string &type, const std::string &boundary = {});
+	void make_multipart(std::string_view subtype, std::string_view boundary = {});
 	bool flatten();
 
 	std::string get_mime_type() const;
-	void set_mime_type(const std::string &type);
-	bool is_mime_type(const std::string &type) const;
+	void set_mime_type(std::string_view type);
+	bool is_mime_type(std::string_view type) const;
 	bool has_mime_type() const;
 
-	// Body and attachments
-	Part &set_alternative(const std::string &subtype, const std::string &text);
-	void set_plain(const std::string &text);
-	void set_html(const std::string &text);
+	// Body and attachments; text is UTF-8 and is encoded as needed.
+	Part &set_alternative(std::string_view subtype, std::string_view text);
+	void set_plain(std::string_view text);
+	void set_html(std::string_view text);
 
-	const Part *get_first_matching_part(std::function<bool(const Part &)> predicate) const;
-	Part *get_first_matching_part(std::function<bool(const Part &)> predicate);
-	const Part *get_first_matching_part(const std::string &type) const;
-	Part *get_first_matching_part(const std::string &type);
-	std::string get_first_matching_body(const std::string &type) const;
+	const Part *get_first_matching_part(const std::function<bool(const Part &)> &predicate) const;
+	Part *get_first_matching_part(const std::function<bool(const Part &)> &predicate);
+	const Part *get_first_matching_part(std::string_view type) const;
+	Part *get_first_matching_part(std::string_view type);
+	std::string get_first_matching_body(std::string_view type) const;
 	std::string get_text() const;
 	std::string get_plain() const;
 	std::string get_html() const;
 
 	Part &attach(const Part &attachment);
-	Part &attach(const std::string &data, const std::string &mime_type, const std::string &filename = {});
-	Part &attach(std::istream &in, const std::string &mime_type, const std::string &filename = {});
+	Part &attach(std::string_view data, std::string_view mime_type, std::string_view filename = {});
+	Part &attach(std::istream &in, std::string_view mime_type, std::string_view filename = {});
 	std::vector<const Part *> get_attachments() const;
 
-	void clear_alternative(const std::string &subtype);
+	void clear_alternative(std::string_view type);
 	void clear_text();
 	void clear_plain();
 	void clear_html();
@@ -153,17 +170,7 @@ class Message: public Part {
 	Message();
 };
 
-bool operator==(const Part &lhs, const Part &rhs);
-bool operator!=(const Part &lhs, const Part &rhs);
+std::ostream &operator<<(std::ostream &out, const Part &part);
+std::istream &operator>>(std::istream &in, Part &part);
 
-}
-
-inline std::ostream &operator<<(std::ostream &out, const Mimesis::Part &part) {
-	part.save(out);
-	return out;
-}
-
-inline std::istream &operator>>(std::istream &in, Mimesis::Part &part) {
-	part.load(in);
-	return in;
 }

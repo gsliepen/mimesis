@@ -3,8 +3,11 @@ catch2 = dependency('catch2-with-main', version: '>=3.0', required: get_option('
 if catch2.found()
 	tests = executable('tests',
 		'build.cpp',
+		'codecs.cpp',
 		'headers.cpp',
+		'misc.cpp',
 		'multipart.cpp',
+		'parameters.cpp',
 		'parse.cpp',
 		link_with: libmimesis,
 		include_directories: incdir,

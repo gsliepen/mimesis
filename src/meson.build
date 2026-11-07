@@ -1,7 +1,9 @@
 libmimesis = library('mimesis',
 	'base64.cpp',
 	'charset.cpp',
+	'encoded-words.cpp',
 	'mimesis.cpp',
+	'parameters.cpp',
 	'quoted-printable.cpp',
 	install: true,
 )

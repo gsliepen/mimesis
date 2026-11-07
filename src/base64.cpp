@@ -17,86 +17,85 @@
 
 #include "base64.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 
 using namespace std;
 
-static const string base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-static const signed char base64_inverse[256] = {
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-	52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-	-1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-	15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-	-1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-};
+namespace Mimesis {
 
-string base64_encode(string_view in) {
+static constexpr string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static constexpr auto inverse_alphabet = [] {
+	array<int8_t, 256> inverse{};
+	inverse.fill(-1);
+	for (size_t i = 0; i < alphabet.size(); i++)
+		inverse[static_cast<uint8_t>(alphabet[i])] = static_cast<int8_t>(i);
+	return inverse;
+}();
+
+string base64_encode(string_view in, size_t line_length, string_view line_ending) {
 	string out;
-	size_t outlen = ((in.size() + 2) / 3) * 4;
-	out.reserve(outlen);
+	out.reserve((in.size() + 2) / 3 * 4);
+	size_t column = 0;
 
-	size_t i;
-	const uint8_t *uin = (const uint8_t *)in.data();
+	auto emit = [&](char c) {
+		if (line_length && column == line_length) {
+			out += line_ending;
+			column = 0;
+		}
+		out.push_back(c);
+		column++;
+	};
 
-	for (i = 0; i < (in.size() / 3) * 3; i += 3) {
-		out.push_back(base64[                         (uin[i + 0] >> 2)]);
-		out.push_back(base64[(uin[i + 0] << 4 & 63) | (uin[i + 1] >> 4)]);
-		out.push_back(base64[(uin[i + 1] << 2 & 63) | (uin[i + 2] >> 6)]);
-		out.push_back(base64[(uin[i + 2] << 0 & 63)                    ]);
+	for (size_t i = 0; i < in.size(); i += 3) {
+		size_t available = min<size_t>(in.size() - i, 3);
+		uint32_t triplet = 0;
+		for (size_t j = 0; j < 3; j++)
+			triplet = triplet << 8 | (j < available ? static_cast<uint8_t>(in[i + j]) : 0);
+		for (size_t j = 0; j < 4; j++)
+			emit(j <= available ? alphabet[(triplet >> (18 - 6 * j)) & 63] : '=');
 	}
 
-	while (i++ < in.size())
-		out.push_back('=');
+	if (line_length && !out.empty())
+		out += line_ending;
 
 	return out;
 }
 
 string base64_decode(string_view in) {
 	string out;
-	size_t estimate = (in.size() / 4) * 3;
-	out.reserve(estimate);
+	out.reserve(in.size() / 4 * 3);
 
-	int i = 0;
+	size_t count = 0;
 	uint32_t triplet = 0;
 
-	for(uint8_t c: in) {
-		auto d = base64_inverse[c];
-		if (d == -1) {
+	for (uint8_t c: in) {
+		auto value = inverse_alphabet[c];
+		if (value == -1) {
 			if (c == '=')
 				break;
-			else
-				continue;
+			continue;
 		}
 
-		triplet <<= 6;
-		triplet |= d;
+		triplet = triplet << 6 | static_cast<uint32_t>(value);
 
-		if((i & 3) == 3) {
+		if (++count % 4 == 0) {
 			out.push_back(static_cast<char>(triplet >> 16));
 			out.push_back(static_cast<char>(triplet >> 8));
 			out.push_back(static_cast<char>(triplet));
 		}
-
-		i++;
 	}
 
-	if((i & 3) == 3) {
+	if (count % 4 == 3) {
 		out.push_back(static_cast<char>(triplet >> 10));
 		out.push_back(static_cast<char>(triplet >> 2));
-	} else if((i & 3) == 2) {
+	} else if (count % 4 == 2) {
 		out.push_back(static_cast<char>(triplet >> 4));
 	}
 
 	return out;
+}
+
 }

@@ -12,6 +12,11 @@ static void add_addresses(Mimesis::Part &part, const std::string &subject = "Tes
 	part["Subject"] = subject;
 }
 
+static const std::string address_headers =
+	"From: Some One <some.one@example.org>\r\n"
+	"To: Someone Else <someone.else@example.org>\r\n"
+	"Subject: Test\r\n";
+
 TEST_CASE("Low-level builders reproduce the reference messages") {
 	Mimesis::Message message;
 	add_addresses(message);
@@ -87,16 +92,185 @@ TEST_CASE("Low-level builders reproduce the reference messages") {
 	CHECK(outer.to_string() == read_file(test_data_dir / "05-nested-message-rfc822"));
 }
 
-TEST_CASE("High-level builders produce messages that parse back") {
+TEST_CASE("High-level builders") {
 	Mimesis::Message message;
 	add_addresses(message);
 	message.set_plain("Hello!\r\n");
+	CHECK(message.to_string() ==
+			address_headers +
+			"MIME-Version: 1.0\r\n"
+			"Content-Type: text/plain; charset=utf-8\r\n"
+			"\r\n"
+			"Hello!\r\n");
+
 	message.set_html("<p>Hello!</p>\r\n");
-	message.attach("This is the attachment.\r\n", "text/plain");
+	message.set_boundary("zxnrbl");
+	CHECK(message.to_string() ==
+			address_headers +
+			"MIME-Version: 1.0\r\n"
+			"Content-Type: multipart/alternative; boundary=zxnrbl\r\n"
+			"\r\n"
+			"--zxnrbl\r\n"
+			"Content-Type: text/plain; charset=utf-8\r\n"
+			"\r\n"
+			"Hello!\r\n"
+			"--zxnrbl\r\n"
+			"Content-Type: text/html; charset=utf-8\r\n"
+			"\r\n"
+			"<p>Hello!</p>\r\n"
+			"--zxnrbl--\r\n");
+
+	message.attach("This is the attachment.\r\n", "text/plain", "attachment.txt");
+	message.set_boundary("zxnrbl");
+	message.get_parts()[0].set_boundary("xyzzy");
+	CHECK(message.to_string() ==
+			address_headers +
+			"MIME-Version: 1.0\r\n"
+			"Content-Type: multipart/mixed; boundary=zxnrbl\r\n"
+			"\r\n"
+			"--zxnrbl\r\n"
+			"Content-Type: multipart/alternative; boundary=xyzzy\r\n"
+			"\r\n"
+			"--xyzzy\r\n"
+			"Content-Type: text/plain; charset=utf-8\r\n"
+			"\r\n"
+			"Hello!\r\n"
+			"--xyzzy\r\n"
+			"Content-Type: text/html; charset=utf-8\r\n"
+			"\r\n"
+			"<p>Hello!</p>\r\n"
+			"--xyzzy--\r\n"
+			"--zxnrbl\r\n"
+			"Content-Type: text/plain\r\n"
+			"Content-Disposition: attachment; filename=attachment.txt\r\n"
+			"\r\n"
+			"This is the attachment.\r\n"
+			"--zxnrbl--\r\n");
+
+	Mimesis::Part outer;
+	add_addresses(outer);
+	message["Subject"] = "Nested test";
+	outer.attach(message);
+	CHECK(outer.get_header("MIME-Version").empty());
+	CHECK(outer.get_header("Content-Type") == "message/rfc822");
+	CHECK(outer.get_header("Content-Disposition") == "attachment");
+	CHECK(outer.get_body() == message.to_string());
+}
+
+TEST_CASE("Text is encoded as needed") {
+	Mimesis::Message message;
+	message["Subject"] = "x";
+
+	SECTION("ASCII text is sent as is") {
+		message.set_plain("Hello!\r\n");
+		CHECK(message.get_header("Content-Transfer-Encoding").empty());
+	}
+
+	SECTION("mostly ASCII text uses quoted-printable") {
+		message.set_plain("Café au lait\r\n");
+		CHECK(message.get_header("Content-Transfer-Encoding") == "quoted-printable");
+		CHECK(message.get_header_parameter("Content-Type", "charset") == "utf-8");
+		CHECK(message.to_string().ends_with("\r\n\r\nCaf=C3=A9 au lait\r\n"));
+		CHECK(message.get_plain() == "Café au lait\r\n");
+	}
+
+	SECTION("mostly non-ASCII text uses base64") {
+		message.set_plain("日本語のテキスト\r\n");
+		CHECK(message.get_header("Content-Transfer-Encoding") == "base64");
+		CHECK(message.get_plain() == "日本語のテキスト\r\n");
+	}
+
+	SECTION("lines that are too long use quoted-printable") {
+		auto text = std::string(2000, 'x') + "\r\n";
+		message.set_plain(text);
+		CHECK(message.get_header("Content-Transfer-Encoding") == "quoted-printable");
+		CHECK(all_lines_at_most(message.to_string(), 76));
+		CHECK(message.get_plain() == text);
+	}
 
 	Mimesis::Message reparsed;
 	reparsed.from_string(message.to_string());
-	CHECK(reparsed.get_plain() == "Hello!\r\n");
-	CHECK(reparsed.get_html() == "<p>Hello!</p>\r\n");
-	CHECK(reparsed.get_attachments().size() == 1);
+	CHECK(reparsed.get_plain() == message.get_plain());
+}
+
+TEST_CASE("Binary attachments are base64 encoded") {
+	std::string data;
+	for (int i = 0; i < 1000; i++)
+		data.push_back(static_cast<char>(i * 7));
+
+	Mimesis::Message message;
+	message["Subject"] = "x";
+	message.set_plain("See attachment.\r\n");
+	auto &attachment = message.attach(data, "application/octet-stream", "data.bin");
+	CHECK(attachment.get_header("Content-Transfer-Encoding") == "base64");
+	CHECK(attachment.get_body() == data);
+	CHECK(all_lines_at_most(message.to_string(), 76));
+
+	Mimesis::Message reparsed;
+	reparsed.from_string(message.to_string());
+	REQUIRE(reparsed.get_attachments().size() == 1);
+	CHECK(reparsed.get_attachments()[0]->get_body() == data);
+	CHECK(reparsed.get_attachments()[0]->get_header_parameter("Content-Disposition", "filename") == "data.bin");
+}
+
+TEST_CASE("Attachments with non-ASCII filenames use RFC 2231") {
+	Mimesis::Message message;
+	message["Subject"] = "x";
+	message.attach("data", "application/octet-stream", "résumé.pdf");
+	CHECK(message.get_header("Content-Disposition") == "attachment; filename*=utf-8''r%C3%A9sum%C3%A9.pdf");
+	CHECK(message.get_header_parameter("Content-Disposition", "filename") == "résumé.pdf");
+}
+
+TEST_CASE("Messages built with high-level functions get a MIME-Version header") {
+	Mimesis::Message message;
+	message["Subject"] = "x";
+	message.attach("data", "application/octet-stream");
+	CHECK(message.get_header("MIME-Version") == "1.0");
+
+	Mimesis::Part part;
+	part.set_plain("text");
+	CHECK(part.get_header("MIME-Version").empty());
+}
+
+TEST_CASE("Replacing text resets the transfer encoding") {
+	Mimesis::Message message;
+	message.from_string("Subject: x\nContent-Type: text/plain\nContent-Transfer-Encoding: base64\n\naGVsbG8=\n");
+	message.set_plain("new text\n");
+	CHECK(message.get_header("Content-Transfer-Encoding").empty());
+	CHECK(message.get_plain() == "new text\n");
+}
+
+TEST_CASE("Making a body multipart moves its transfer encoding along") {
+	Mimesis::Message message;
+	message.from_string("Subject: x\nContent-Type: text/plain\nContent-Transfer-Encoding: base64\n\naGVsbG8=\n");
+	message.attach("data", "application/octet-stream");
+	CHECK(message.get_header("Content-Transfer-Encoding").empty());
+	REQUIRE(message.get_parts().size() == 2);
+	CHECK(message.get_parts()[0].get_header("Content-Transfer-Encoding") == "base64");
+	CHECK(message.get_plain() == "hello");
+}
+
+TEST_CASE("Attaching a part keeps its encoding, parameters and parts") {
+	std::string data("\x00\x01\xff\n", 4);
+	Mimesis::Part binary;
+	binary.attach(data, "application/octet-stream", "a.bin");
+
+	Mimesis::Message message;
+	message["Subject"] = "x";
+	message.set_plain("text\r\n");
+	message.attach(binary);
+	REQUIRE(message.get_attachments().size() == 1);
+	auto attachment = message.get_attachments()[0];
+	CHECK(attachment->get_body() == data);
+	CHECK(attachment->get_header_parameter("Content-Disposition", "filename") == "a.bin");
+
+	Mimesis::Part multipart;
+	multipart.set_plain("plain\r\n");
+	multipart.set_html("html\r\n");
+	message.attach(multipart);
+	REQUIRE(message.get_parts().size() == 3);
+	auto &attached = message.get_parts()[2];
+	CHECK(attached.is_multipart("alternative"));
+	CHECK(attached.is_attachment());
+	CHECK(attached.get_parts().size() == 2);
 }

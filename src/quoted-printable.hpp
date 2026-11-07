@@ -18,7 +18,15 @@
 */
 
 #include <string>
-
 #include <string_view>
 
+namespace Mimesis {
+
+// Line breaks (LF or CRLF) in the input are written as line_ending.
+std::string quoted_printable_encode(std::string_view in, std::string_view line_ending = "\r\n");
 std::string quoted_printable_decode(std::string_view in);
+
+// The "Q" encoding of RFC 2047 encoded words, where an underscore represents a space.
+std::string q_decode(std::string_view in);
+
+}

@@ -18,7 +18,14 @@
 */
 
 #include <string>
-
 #include <string_view>
 
-std::string charset_decode(const std::string &charset, std::string_view text);
+namespace Mimesis {
+
+// Converts text in the given character set to UTF-8.
+// Throws std::runtime_error for unknown character sets and invalid input.
+std::string charset_decode(std::string_view charset, std::string_view text);
+
+bool is_utf8_compatible(std::string_view charset);
+
+}
