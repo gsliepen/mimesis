@@ -22,17 +22,16 @@
 
 #include "string-utils.hpp"
 
-using namespace std;
 
 namespace Mimesis {
 
-static constexpr size_t max_line_length = 76;
+static constexpr std::size_t max_line_length = 76;
 
-string quoted_printable_encode(string_view in, string_view line_ending) {
-	string out;
-	size_t column = 0;
+std::string quoted_printable_encode(std::string_view in, std::string_view line_ending) {
+	std::string out;
+	std::size_t column = 0;
 
-	auto append = [&](string_view encoded) {
+	auto append = [&](std::string_view encoded) {
 		// Leave room for the '=' of a soft line break.
 		if (column + encoded.size() > max_line_length - 1) {
 			out += '=';
@@ -45,20 +44,20 @@ string quoted_printable_encode(string_view in, string_view line_ending) {
 
 	while (!in.empty()) {
 		auto newline = in.find('\n');
-		bool has_newline = newline != string_view::npos;
+		bool has_newline = newline != std::string_view::npos;
 		auto line = in.substr(0, newline);
 		in.remove_prefix(has_newline ? newline + 1 : in.size());
 		if (has_newline && line.ends_with('\r'))
 			line.remove_suffix(1);
 
-		for (size_t i = 0; i < line.size(); i++) {
+		for (std::size_t i = 0; i < line.size(); i++) {
 			auto c = static_cast<unsigned char>(line[i]);
 			bool is_last = i + 1 == line.size();
 			bool is_literal = (c >= 33 && c <= 126 && c != '=') || ((c == ' ' || c == '\t') && !is_last);
 			if (is_literal)
 				append(line.substr(i, 1));
 			else
-				append(format("={:02X}", c));
+				append(std::format("={:02X}", c));
 		}
 
 		if (has_newline) {
@@ -70,11 +69,11 @@ string quoted_printable_encode(string_view in, string_view line_ending) {
 	return out;
 }
 
-string quoted_printable_decode(string_view in) {
-	string out;
+std::string quoted_printable_decode(std::string_view in) {
+	std::string out;
 	out.reserve(in.size());
 
-	for (size_t i = 0; i < in.size(); i++) {
+	for (std::size_t i = 0; i < in.size(); i++) {
 		if (in[i] != '=') {
 			out.push_back(in[i]);
 			continue;
@@ -82,7 +81,7 @@ string quoted_printable_decode(string_view in) {
 
 		// A soft line break, possibly with trailing whitespace added by a transport.
 		auto after_whitespace = in.find_first_not_of(" \t", i + 1);
-		if (after_whitespace == string_view::npos) {
+		if (after_whitespace == std::string_view::npos) {
 			i = in.size();
 			continue;
 		}
@@ -108,9 +107,9 @@ string quoted_printable_decode(string_view in) {
 	return out;
 }
 
-string q_decode(string_view in) {
-	string text(in);
-	ranges::replace(text, '_', ' ');
+std::string q_decode(std::string_view in) {
+	std::string text(in);
+	std::ranges::replace(text, '_', ' ');
 	return quoted_printable_decode(text);
 }
 

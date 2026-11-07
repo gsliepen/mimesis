@@ -26,29 +26,28 @@
 #include "encoded-words.hpp"
 #include "string-utils.hpp"
 
-using namespace std;
 
 namespace Mimesis {
 
 namespace {
 
 struct Parameter {
-	string_view name;
-	string_view value;
-	size_t begin; // Position of the semicolon in front of it.
-	size_t end;
+	std::string_view name;
+	std::string_view value;
+	std::size_t begin; // Position of the semicolon in front of it.
+	std::size_t end;
 };
 
 }
 
-static vector<Parameter> parse_parameters(string_view header) {
-	vector<Parameter> parameters;
-	auto skip_space = [&](size_t &i) {
+static std::vector<Parameter> parse_parameters(std::string_view header) {
+	std::vector<Parameter> parameters;
+	auto skip_space = [&](std::size_t &i) {
 		while (i < header.size() && is_space(header[i]))
 			i++;
 	};
 
-	for (auto semicolon = header.find(';'); semicolon != string_view::npos; semicolon = header.find(';', semicolon)) {
+	for (auto semicolon = header.find(';'); semicolon != std::string_view::npos; semicolon = header.find(';', semicolon)) {
 		auto i = semicolon + 1;
 		skip_space(i);
 
@@ -58,7 +57,7 @@ static vector<Parameter> parse_parameters(string_view header) {
 		auto name = header.substr(name_begin, i - name_begin);
 		skip_space(i);
 
-		string_view value;
+		std::string_view value;
 		if (i < header.size() && header[i] == '=') {
 			i++;
 			skip_space(i);
@@ -67,7 +66,7 @@ static vector<Parameter> parse_parameters(string_view header) {
 				for (i++; i < header.size() && header[i] != '"'; i++)
 					if (header[i] == '\\')
 						i++;
-				i = min(i + 1, header.size());
+				i = std::min(i + 1, header.size());
 			} else {
 				while (i < header.size() && header[i] != ';' && !is_space(header[i]))
 					i++;
@@ -84,12 +83,12 @@ static vector<Parameter> parse_parameters(string_view header) {
 	return parameters;
 }
 
-static string unquote(string_view value) {
+static std::string unquote(std::string_view value) {
 	if (!value.starts_with('"'))
-		return string(value);
+		return std::string(value);
 
-	string unquoted;
-	for (size_t i = 1; i < value.size() && value[i] != '"'; i++) {
+	std::string unquoted;
+	for (std::size_t i = 1; i < value.size() && value[i] != '"'; i++) {
 		if (value[i] == '\\' && i + 1 < value.size())
 			i++;
 		unquoted.push_back(value[i]);
@@ -97,9 +96,9 @@ static string unquote(string_view value) {
 	return unquoted;
 }
 
-static string percent_decode(string_view text) {
-	string decoded;
-	for (size_t i = 0; i < text.size(); i++) {
+static std::string percent_decode(std::string_view text) {
+	std::string decoded;
+	for (std::size_t i = 0; i < text.size(); i++) {
 		if (text[i] == '%' && i + 2 < text.size() && hex_value(text[i + 1]) >= 0 && hex_value(text[i + 2]) >= 0) {
 			decoded.push_back(static_cast<char>(hex_value(text[i + 1]) * 16 + hex_value(text[i + 2])));
 			i += 2;
@@ -110,43 +109,43 @@ static string percent_decode(string_view text) {
 	return decoded;
 }
 
-static const Parameter *find_parameter(const vector<Parameter> &parameters, string_view name) {
-	auto it = ranges::find_if(parameters, [&](const Parameter &parameter) { return iequals(parameter.name, name); });
+static const Parameter *find_parameter(const std::vector<Parameter> &parameters, std::string_view name) {
+	auto it = std::ranges::find_if(parameters, [&](const Parameter &parameter) { return iequals(parameter.name, name); });
 	return it == parameters.end() ? nullptr : &*it;
 }
 
 // Splits an RFC 2231 extended value into its charset and the percent-decoded text.
-static pair<string, string> decode_extended_value(string_view value) {
+static std::pair<std::string, std::string> decode_extended_value(std::string_view value) {
 	auto charset_end = value.find('\'');
-	auto language_end = charset_end == string_view::npos ? string_view::npos : value.find('\'', charset_end + 1);
-	if (language_end == string_view::npos)
+	auto language_end = charset_end == std::string_view::npos ? std::string_view::npos : value.find('\'', charset_end + 1);
+	if (language_end == std::string_view::npos)
 		return {{}, percent_decode(value)};
-	return {string(value.substr(0, charset_end)), percent_decode(value.substr(language_end + 1))};
+	return {std::string(value.substr(0, charset_end)), percent_decode(value.substr(language_end + 1))};
 }
 
-static string convert_to_utf8(const string &charset, string text) {
+static std::string convert_to_utf8(const std::string &charset, std::string text) {
 	if (is_utf8_compatible(charset))
 		return text;
 	try {
 		return charset_decode(charset, text);
-	} catch (const runtime_error &) {
+	} catch (const std::runtime_error &) {
 		return text;
 	}
 }
 
-string get_parameter(string_view header, string_view name) {
+std::string get_parameter(std::string_view header, std::string_view name) {
 	auto parameters = parse_parameters(header);
-	string name_string(name);
+	std::string name_string(name);
 
 	if (auto extended = find_parameter(parameters, name_string + "*")) {
 		auto [charset, text] = decode_extended_value(unquote(extended->value));
 		return convert_to_utf8(charset, std::move(text));
 	}
 
-	string charset;
-	string continued;
-	for (size_t index = 0;; index++) {
-		auto section_name = format("{}*{}", name, index);
+	std::string charset;
+	std::string continued;
+	for (std::size_t index = 0;; index++) {
+		auto section_name = std::format("{}*{}", name, index);
 		if (auto section = find_parameter(parameters, section_name + "*")) {
 			if (index == 0) {
 				auto [section_charset, text] = decode_extended_value(unquote(section->value));
@@ -170,33 +169,33 @@ string get_parameter(string_view header, string_view name) {
 	return {};
 }
 
-static bool is_parameter_or_section(string_view parameter, string_view name) {
+static bool is_parameter_or_section(std::string_view parameter, std::string_view name) {
 	return iequals(parameter, name) || (istarts_with(parameter, name) && parameter[name.size()] == '*');
 }
 
 static bool is_attribute_char(unsigned char c) {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || string_view("!#$&+-.^_`|~").find(static_cast<char>(c)) != string_view::npos;
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || std::string_view("!#$&+-.^_`|~").find(static_cast<char>(c)) != std::string_view::npos;
 }
 
-static string format_parameter(string_view name, string_view value) {
+static std::string format_parameter(std::string_view name, std::string_view value) {
 	auto is_printable = [](unsigned char c) { return c >= 32 && c < 127; };
-	if (ranges::all_of(value, is_printable))
-		return format("{}={}", name, quote_token(value));
+	if (std::ranges::all_of(value, is_printable))
+		return std::format("{}={}", name, quote_token(value));
 
-	string encoded = format("{}*=utf-8''", name);
+	std::string encoded = std::format("{}*=utf-8''", name);
 	for (unsigned char c: value) {
 		if (is_attribute_char(c))
 			encoded.push_back(static_cast<char>(c));
 		else
-			encoded += format("%{:02X}", c);
+			encoded += std::format("%{:02X}", c);
 	}
 	return encoded;
 }
 
-string set_parameter(string_view header, string_view name, string_view value) {
+std::string set_parameter(std::string_view header, std::string_view name, std::string_view value) {
 	auto new_parameter = "; " + format_parameter(name, value);
-	string result;
-	size_t copied = 0;
+	std::string result;
+	std::size_t copied = 0;
 	bool replaced = false;
 
 	for (auto &parameter: parse_parameters(header)) {
@@ -216,27 +215,27 @@ string set_parameter(string_view header, string_view name, string_view value) {
 	return result;
 }
 
-string_view get_value(string_view header) {
+std::string_view get_value(std::string_view header) {
 	return trim(header.substr(0, header.find(';')));
 }
 
-string set_value(string_view header, string_view value) {
+std::string set_value(std::string_view header, std::string_view value) {
 	auto semicolon = header.find(';');
-	if (semicolon == string_view::npos)
-		return string(value);
-	return string(value) + string(header.substr(semicolon));
+	if (semicolon == std::string_view::npos)
+		return std::string(value);
+	return std::string(value) + std::string(header.substr(semicolon));
 }
 
-string quote_token(string_view value) {
-	static constexpr string_view special_characters = "()<>@,;:\\\"/[]?=";
+std::string quote_token(std::string_view value) {
+	static constexpr std::string_view special_characters = "()<>@,;:\\\"/[]?=";
 	auto is_token_char = [](unsigned char c) {
-		return c > 32 && c < 127 && special_characters.find(static_cast<char>(c)) == string_view::npos;
+		return c > 32 && c < 127 && special_characters.find(static_cast<char>(c)) == std::string_view::npos;
 	};
 
-	if (!value.empty() && ranges::all_of(value, is_token_char))
-		return string(value);
+	if (!value.empty() && std::ranges::all_of(value, is_token_char))
+		return std::string(value);
 
-	string quoted = "\"";
+	std::string quoted = "\"";
 	for (auto c: value) {
 		if (c == '"' || c == '\\')
 			quoted.push_back('\\');

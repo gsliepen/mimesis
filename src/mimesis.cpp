@@ -33,106 +33,105 @@
 #include "quoted-printable.hpp"
 #include "string-utils.hpp"
 
-using namespace std;
 
 namespace Mimesis {
 
-static string random_string(size_t length) {
-	static constexpr string_view characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-	thread_local mt19937_64 engine = [] {
-		random_device device;
-		seed_seq seed{device(), device(), device(), device(), device(), device(), device(), device()};
-		return mt19937_64(seed);
+static std::string random_string(std::size_t length) {
+	static constexpr std::string_view characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+	thread_local std::mt19937_64 engine = [] {
+		std::random_device device;
+		std::seed_seq seed{device(), device(), device(), device(), device(), device(), device(), device()};
+		return std::mt19937_64(seed);
 	}();
-	uniform_int_distribution<size_t> distribution(0, characters.size() - 1);
+	std::uniform_int_distribution<std::size_t> distribution(0, characters.size() - 1);
 
-	string result;
-	ranges::generate_n(back_inserter(result), length, [&] { return characters[distribution(engine)]; });
+	std::string result;
+	std::ranges::generate_n(std::back_inserter(result), length, [&] { return characters[distribution(engine)]; });
 	return result;
 }
 
-static string_view line_ending(bool crlf) {
+static std::string_view line_ending(bool crlf) {
 	return crlf ? "\r\n" : "\n";
 }
 
 // Matches "type/subtype" exactly, or only the type if either side has no subtype.
-static bool types_match(string_view a, string_view b) {
+static bool types_match(std::string_view a, std::string_view b) {
 	a = trim(a);
 	b = trim(b);
-	if (a.find('/') == string_view::npos || b.find('/') == string_view::npos)
+	if (a.find('/') == std::string_view::npos || b.find('/') == std::string_view::npos)
 		return iequals(a.substr(0, a.find('/')), b.substr(0, b.find('/')));
 	return iequals(a, b);
 }
 
-static bool has_parameters(string_view field) {
+static bool has_parameters(std::string_view field) {
 	return iequals(field, "Content-Type") || iequals(field, "Content-Disposition");
 }
 
-static bool is_content_header(string_view field) {
+static bool is_content_header(std::string_view field) {
 	return istarts_with(field, "Content-");
 }
 
-static auto has_field(string_view field) {
+static auto has_field(std::string_view field) {
 	return [field](const Header &header) { return iequals(header.first, field); };
 }
 
-static bool is_field_name(string_view field) {
-	return !field.empty() && ranges::all_of(field, [](unsigned char c) { return c > 32 && c < 127 && c != ':'; });
+static bool is_field_name(std::string_view field) {
+	return !field.empty() && std::ranges::all_of(field, [](unsigned char c) { return c > 32 && c < 127 && c != ':'; });
 }
 
-static void check_header(string_view field, string_view value) {
+static void check_header(std::string_view field, std::string_view value) {
 	if (!is_field_name(field))
-		throw invalid_argument(format("Invalid header field name \"{}\"", field));
+		throw std::invalid_argument(std::format("Invalid header field name \"{}\"", field));
 
 	// Line breaks are only allowed when followed by whitespace (folding).
-	for (size_t i = 0; i < value.size(); i++) {
+	for (std::size_t i = 0; i < value.size(); i++) {
 		if (value[i] != '\r' && value[i] != '\n')
 			continue;
 		if (value.substr(i).starts_with("\r\n"))
 			i++;
 		bool is_folded = value[i] == '\n' && i + 1 < value.size() && (value[i + 1] == ' ' || value[i + 1] == '\t');
 		if (!is_folded)
-			throw invalid_argument(format("Invalid line break in value of header \"{}\"", field));
+			throw std::invalid_argument(std::format("Invalid line break in value of header \"{}\"", field));
 	}
 }
 
 // The boundary may be followed by "--" and whitespace, including a CR.
-static bool is_boundary_line(string_view line, string_view boundary) {
+static bool is_boundary_line(std::string_view line, std::string_view boundary) {
 	if (!line.starts_with("--") || !line.substr(2).starts_with(boundary))
 		return false;
 	line.remove_prefix(2 + boundary.size());
 	if (line.starts_with("--"))
 		line.remove_prefix(2);
-	return ranges::all_of(line, is_space);
+	return std::ranges::all_of(line, is_space);
 }
 
-static bool is_final_boundary_line(string_view line, string_view boundary) {
+static bool is_final_boundary_line(std::string_view line, std::string_view boundary) {
 	return is_boundary_line(line, boundary) && line.substr(2 + boundary.size()).starts_with("--");
 }
 
-static bool is_any_boundary_line(string_view line, const vector<string> &boundaries) {
-	return ranges::any_of(boundaries, [&](const string &boundary) { return is_boundary_line(line, boundary); });
+static bool is_any_boundary_line(std::string_view line, const std::vector<std::string> &boundaries) {
+	return std::ranges::any_of(boundaries, [&](const std::string &boundary) { return is_boundary_line(line, boundary); });
 }
 
 // Folds the header at whitespace, so lines are at most 76 characters long where possible
 // (RFC 2047 section 2). Values that already contain line breaks are left alone.
-static string fold_header(string_view field, string_view value, string_view ending) {
-	static constexpr size_t max_line_length = 76;
+static std::string fold_header(std::string_view field, std::string_view value, std::string_view ending) {
+	static constexpr std::size_t max_line_length = 76;
 
 	if (value.empty())
-		return format("{}:", field);
-	if (value.find('\n') != string_view::npos)
-		return format("{}: {}", field, value);
+		return std::format("{}:", field);
+	if (value.find('\n') != std::string_view::npos)
+		return std::format("{}: {}", field, value);
 
-	string result;
-	string line = format("{}:", field);
-	string text = format(" {}", value);
+	std::string result;
+	std::string line = std::format("{}:", field);
+	std::string text = std::format(" {}", value);
 
 	// Each piece consists of whitespace followed by a word; a line break is inserted in front of it if needed.
-	for (size_t begin = 0; begin < text.size();) {
+	for (std::size_t begin = 0; begin < text.size();) {
 		auto word = text.find_first_not_of(" \t", begin);
-		auto end = word == string::npos ? text.size() : min(text.find_first_of(" \t", word), text.size());
-		auto piece = string_view(text).substr(begin, end - begin);
+		auto end = word == std::string::npos ? text.size() : std::min(text.find_first_of(" \t", word), text.size());
+		auto piece = std::string_view(text).substr(begin, end - begin);
 
 		if (!line.empty() && line.size() + piece.size() > max_line_length) {
 			result += line;
@@ -147,25 +146,25 @@ static string fold_header(string_view field, string_view value, string_view endi
 	return result + line;
 }
 
-static string format_date(chrono::system_clock::time_point date) {
-	return format("{:%a, %d %b %Y %H:%M:%S} +0000", chrono::floor<chrono::seconds>(date));
+static std::string format_date(std::chrono::system_clock::time_point date) {
+	return std::format("{:%a, %d %b %Y %H:%M:%S} +0000", std::chrono::floor<std::chrono::seconds>(date));
 }
 
 // Loading and saving a whole MIME message
 
 // Returns the boundary line of an enclosing part that ended this part, or an empty string at the end of input.
-string Part::load_part(istream &in, vector<string> &boundaries) {
-	string line;
-	size_t crlf_lines = 0;
-	size_t lf_lines = 0;
+std::string Part::load_part(std::istream &in, std::vector<std::string> &boundaries) {
+	std::string line;
+	std::size_t crlf_lines = 0;
+	std::size_t lf_lines = 0;
 
-	auto append_line = [&](string &destination) {
+	auto append_line = [&](std::string &destination) {
 		destination += line;
 		if (!in.eof())
 			destination += '\n';
 	};
 
-	while (getline(in, line)) {
+	while (std::getline(in, line)) {
 		if (is_any_boundary_line(line, boundaries))
 			return line;
 
@@ -181,12 +180,12 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 
 		if (line[0] == ' ' || line[0] == '\t') {
 			if (headers.empty())
-				throw runtime_error(format("Invalid header continuation line \"{}\"", line));
+				throw std::runtime_error(std::format("Invalid header continuation line \"{}\"", line));
 			auto &value = headers.back().second;
-			auto continuation = string_view(line);
+			auto continuation = std::string_view(line);
 			// The value can start on a continuation line, its leading whitespace is not part of it.
 			if (value.empty())
-				continuation.remove_prefix(min(continuation.find_first_not_of(" \t"), continuation.size()));
+				continuation.remove_prefix(std::min(continuation.find_first_not_of(" \t"), continuation.size()));
 			value += continuation;
 			continue;
 		}
@@ -196,10 +195,10 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 			continue;
 
 		auto colon = line.find(':');
-		if (colon == string::npos || !is_field_name(string_view(line).substr(0, colon)))
-			throw runtime_error(format("Invalid header line \"{}\"", line));
+		if (colon == std::string::npos || !is_field_name(std::string_view(line).substr(0, colon)))
+			throw std::runtime_error(std::format("Invalid header line \"{}\"", line));
 
-		auto value = string_view(line).substr(colon + 1);
+		auto value = std::string_view(line).substr(colon + 1);
 		while (!value.empty() && is_space(value.front()))
 			value.remove_prefix(1);
 
@@ -214,7 +213,7 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 	multipart = !boundary.empty();
 
 	if (!multipart) {
-		while (getline(in, line)) {
+		while (std::getline(in, line)) {
 			if (is_any_boundary_line(line, boundaries))
 				return line;
 			append_line(body);
@@ -224,8 +223,8 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 
 	boundaries.push_back(boundary);
 
-	string terminator;
-	while (getline(in, line)) {
+	std::string terminator;
+	while (std::getline(in, line)) {
 		if (is_any_boundary_line(line, boundaries)) {
 			terminator = line;
 			break;
@@ -242,7 +241,7 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 	if (!is_final_boundary_line(terminator, boundary))
 		return terminator;
 
-	while (getline(in, line)) {
+	while (std::getline(in, line)) {
 		if (is_any_boundary_line(line, boundaries))
 			return line;
 		append_line(epilogue);
@@ -251,12 +250,12 @@ string Part::load_part(istream &in, vector<string> &boundaries) {
 	return {};
 }
 
-void Part::load(istream &in) {
+void Part::load(std::istream &in) {
 	clear();
-	vector<string> boundaries;
+	std::vector<std::string> boundaries;
 	load_part(in, boundaries);
 	if (in.bad())
-		throw runtime_error("Error reading message");
+		throw std::runtime_error("Error reading message");
 }
 
 bool Part::ends_with_newline() const {
@@ -265,11 +264,11 @@ bool Part::ends_with_newline() const {
 	return body.empty() || body.ends_with('\n');
 }
 
-void Part::save(ostream &out) const {
+void Part::save(std::ostream &out) const {
 	auto ending = line_ending(crlf);
 
 	if (message && headers.empty())
-		throw runtime_error("No headers specified");
+		throw std::runtime_error("No headers specified");
 
 	for (auto &[field, value]: headers) {
 		check_header(field, value);
@@ -299,30 +298,30 @@ void Part::save(ostream &out) const {
 	out << epilogue;
 }
 
-void Part::load(const filesystem::path &filename) {
-	ifstream in(filename, ios::binary);
+void Part::load(const std::filesystem::path &filename) {
+	std::ifstream in(filename, std::ios::binary);
 	if (!in.is_open())
-		throw runtime_error(format("Could not open message file {}", filename.string()));
+		throw std::runtime_error(std::format("Could not open message file {}", filename.string()));
 	load(in);
 }
 
-void Part::save(const filesystem::path &filename) const {
-	ofstream out(filename, ios::binary);
+void Part::save(const std::filesystem::path &filename) const {
+	std::ofstream out(filename, std::ios::binary);
 	if (!out.is_open())
-		throw runtime_error(format("Could not open message file {}", filename.string()));
+		throw std::runtime_error(std::format("Could not open message file {}", filename.string()));
 	save(out);
 	out.close();
 	if (out.fail())
-		throw runtime_error(format("Could not write message file {}", filename.string()));
+		throw std::runtime_error(std::format("Could not write message file {}", filename.string()));
 }
 
-void Part::from_string(string_view data) {
-	istringstream in{string(data)};
+void Part::from_string(std::string_view data) {
+	std::istringstream in{std::string(data)};
 	load(in);
 }
 
-string Part::to_string() const {
-	ostringstream out;
+std::string Part::to_string() const {
+	std::ostringstream out;
 	save(out);
 	return std::move(out).str();
 }
@@ -333,9 +332,9 @@ void Part::set_crlf(bool value) {
 
 // Low-level access
 
-string Part::get_body() const {
+std::string Part::get_body() const {
 	auto encoding = get_header_value("Content-Transfer-Encoding");
-	string result;
+	std::string result;
 
 	if (iequals(encoding, "quoted-printable"))
 		result = quoted_printable_decode(body);
@@ -353,31 +352,31 @@ string Part::get_body() const {
 	return result;
 }
 
-string Part::get_preamble() const {
+std::string Part::get_preamble() const {
 	return preamble;
 }
 
-string Part::get_epilogue() const {
+std::string Part::get_epilogue() const {
 	return epilogue;
 }
 
-string Part::get_boundary() const {
+std::string Part::get_boundary() const {
 	return boundary;
 }
 
-vector<Part> &Part::get_parts() {
+std::vector<Part> &Part::get_parts() {
 	return parts;
 }
 
-const vector<Part> &Part::get_parts() const {
+const std::vector<Part> &Part::get_parts() const {
 	return parts;
 }
 
-vector<Header> &Part::get_headers() {
+std::vector<Header> &Part::get_headers() {
 	return headers;
 }
 
-const vector<Header> &Part::get_headers() const {
+const std::vector<Header> &Part::get_headers() const {
 	return headers;
 }
 
@@ -385,15 +384,15 @@ bool Part::is_multipart() const {
 	return multipart;
 }
 
-bool Part::is_multipart(string_view subtype) const {
-	return multipart && types_match(get_mime_type(), format("multipart/{}", subtype));
+bool Part::is_multipart(std::string_view subtype) const {
+	return multipart && types_match(get_mime_type(), std::format("multipart/{}", subtype));
 }
 
 bool Part::is_singlepart() const {
 	return !multipart;
 }
 
-bool Part::is_singlepart(string_view type) const {
+bool Part::is_singlepart(std::string_view type) const {
 	return !multipart && types_match(get_mime_type(), type);
 }
 
@@ -405,37 +404,37 @@ bool Part::is_inline() const {
 	return iequals(get_header_value("Content-Disposition"), "inline");
 }
 
-void Part::set_body(string_view value) {
+void Part::set_body(std::string_view value) {
 	if (multipart)
-		throw runtime_error("Cannot set body of a multipart message");
+		throw std::runtime_error("Cannot set body of a multipart message");
 	body = value;
 }
 
-void Part::set_preamble(string_view value) {
+void Part::set_preamble(std::string_view value) {
 	if (!multipart)
-		throw runtime_error("Cannot set preamble of a non-multipart message");
+		throw std::runtime_error("Cannot set preamble of a non-multipart message");
 	preamble = value;
 }
 
-void Part::set_epilogue(string_view value) {
+void Part::set_epilogue(std::string_view value) {
 	if (!multipart)
-		throw runtime_error("Cannot set epilogue of a non-multipart message");
+		throw std::runtime_error("Cannot set epilogue of a non-multipart message");
 	epilogue = value;
 }
 
-void Part::set_boundary(string_view value) {
+void Part::set_boundary(std::string_view value) {
 	boundary = value;
 	if (has_mime_type())
 		set_header_parameter("Content-Type", "boundary", boundary);
 }
 
-void Part::set_parts(const vector<Part> &value) {
+void Part::set_parts(const std::vector<Part> &value) {
 	if (!multipart)
-		throw runtime_error("Cannot set parts of a non-multipart message");
+		throw std::runtime_error("Cannot set parts of a non-multipart message");
 	parts = value;
 }
 
-void Part::set_headers(const vector<Header> &value) {
+void Part::set_headers(const std::vector<Header> &value) {
 	headers = value;
 }
 
@@ -455,52 +454,52 @@ void Part::clear_body() {
 
 // Raw header manipulation
 
-string Part::get_header(string_view field) const {
-	auto it = ranges::find_if(headers, has_field(field));
-	return it == headers.end() ? string{} : it->second;
+std::string Part::get_header(std::string_view field) const {
+	auto it = std::ranges::find_if(headers, has_field(field));
+	return it == headers.end() ? std::string{} : it->second;
 }
 
-void Part::set_header(string_view field, string_view value) {
+void Part::set_header(std::string_view field, std::string_view value) {
 	if (value.empty()) {
 		erase_header(field);
 		return;
 	}
 
 	check_header(field, value);
-	auto it = ranges::find_if(headers, has_field(field));
+	auto it = std::ranges::find_if(headers, has_field(field));
 	if (it == headers.end())
 		headers.emplace_back(field, value);
 	else
 		it->second = value;
 }
 
-string &Part::operator[](string_view field) {
-	auto it = ranges::find_if(headers, has_field(field));
+std::string &Part::operator[](std::string_view field) {
+	auto it = std::ranges::find_if(headers, has_field(field));
 	if (it != headers.end())
 		return it->second;
 
 	check_header(field, {});
-	return headers.emplace_back(field, string{}).second;
+	return headers.emplace_back(field, std::string{}).second;
 }
 
-const string &Part::operator[](string_view field) const {
-	static const string empty_string;
-	auto it = ranges::find_if(headers, has_field(field));
+const std::string &Part::operator[](std::string_view field) const {
+	static const std::string empty_string;
+	auto it = std::ranges::find_if(headers, has_field(field));
 	return it == headers.end() ? empty_string : it->second;
 }
 
-void Part::append_header(string_view field, string_view value) {
+void Part::append_header(std::string_view field, std::string_view value) {
 	check_header(field, value);
 	headers.emplace_back(field, value);
 }
 
-void Part::prepend_header(string_view field, string_view value) {
+void Part::prepend_header(std::string_view field, std::string_view value) {
 	check_header(field, value);
 	headers.emplace(headers.begin(), field, value);
 }
 
-void Part::erase_header(string_view field) {
-	erase_if(headers, has_field(field));
+void Part::erase_header(std::string_view field) {
+	std::erase_if(headers, has_field(field));
 }
 
 void Part::clear_headers() {
@@ -509,73 +508,73 @@ void Part::clear_headers() {
 
 // Decoded header access
 
-string Part::get_header_value(string_view field) const {
+std::string Part::get_header_value(std::string_view field) const {
 	auto value = get_header(field);
 	if (has_parameters(field))
-		return string(get_value(value));
+		return std::string(get_value(value));
 	return decode_encoded_words(value);
 }
 
-void Part::set_header_value(string_view field, string_view value) {
+void Part::set_header_value(std::string_view field, std::string_view value) {
 	if (!has_parameters(field)) {
 		set_header(field, encode_encoded_words(value));
 		return;
 	}
 
-	auto it = ranges::find_if(headers, has_field(field));
+	auto it = std::ranges::find_if(headers, has_field(field));
 	if (it == headers.end())
 		append_header(field, value);
 	else
 		it->second = set_value(it->second, value);
 }
 
-string Part::get_header_parameter(string_view field, string_view parameter) const {
+std::string Part::get_header_parameter(std::string_view field, std::string_view parameter) const {
 	return get_parameter(get_header(field), parameter);
 }
 
-void Part::set_header_parameter(string_view field, string_view parameter, string_view value) {
-	auto it = ranges::find_if(headers, has_field(field));
+void Part::set_header_parameter(std::string_view field, std::string_view parameter, std::string_view value) {
+	auto it = std::ranges::find_if(headers, has_field(field));
 	if (it == headers.end())
 		append_header(field, set_parameter({}, parameter, value));
 	else
 		it->second = set_parameter(it->second, parameter, value);
 }
 
-string Part::get_multipart_type() const {
+std::string Part::get_multipart_type() const {
 	if (!multipart)
 		return {};
 	auto type = get_mime_type();
-	return type.substr(min(type.find('/') + 1, type.size()));
+	return type.substr(std::min(type.find('/') + 1, type.size()));
 }
 
-void Part::add_received(string_view text, chrono::system_clock::time_point date) {
-	prepend_header("Received", format("{}; {}", text, format_date(date)));
+void Part::add_received(std::string_view text, std::chrono::system_clock::time_point date) {
+	prepend_header("Received", std::format("{}; {}", text, format_date(date)));
 }
 
-void Part::generate_msgid(string_view domain) {
-	set_header("Message-ID", format("<{}@{}>", random_string(32), domain));
+void Part::generate_msgid(std::string_view domain) {
+	set_header("Message-ID", std::format("<{}@{}>", random_string(32), domain));
 }
 
-void Part::set_date(chrono::system_clock::time_point date) {
+void Part::set_date(std::chrono::system_clock::time_point date) {
 	set_header("Date", format_date(date));
 }
 
 // Part manipulation
 
 void Part::erase_content_headers() {
-	erase_if(headers, [](auto &header) { return is_content_header(header.first); });
+	std::erase_if(headers, [](auto &header) { return is_content_header(header.first); });
 }
 
 // Replaces the destination's Content-* headers with ours.
 void Part::move_content_headers_to(Part &destination) {
 	destination.erase_content_headers();
-	ranges::copy_if(headers, back_inserter(destination.headers), is_content_header, &Header::first);
+	std::ranges::copy_if(headers, std::back_inserter(destination.headers), is_content_header, &Header::first);
 	erase_content_headers();
 }
 
 void Part::copy_content_from(const Part &source) {
 	erase_content_headers();
-	ranges::copy_if(source.headers, back_inserter(headers), is_content_header, &Header::first);
+	std::ranges::copy_if(source.headers, std::back_inserter(headers), is_content_header, &Header::first);
 	preamble = source.preamble;
 	body = source.body;
 	epilogue = source.epilogue;
@@ -609,15 +608,15 @@ void Part::clear_parts() {
 	parts.clear();
 }
 
-void Part::make_multipart(string_view subtype, string_view suggested_boundary) {
+void Part::make_multipart(std::string_view subtype, std::string_view suggested_boundary) {
 	if (multipart) {
 		if (is_multipart(subtype))
 			return;
 		Part part;
-		part.preamble = exchange(preamble, {});
-		part.epilogue = exchange(epilogue, {});
-		part.parts = exchange(parts, {});
-		part.boundary = exchange(boundary, {});
+		part.preamble = std::exchange(preamble, {});
+		part.epilogue = std::exchange(epilogue, {});
+		part.parts = std::exchange(parts, {});
+		part.boundary = std::exchange(boundary, {});
 		part.multipart = true;
 		part.crlf = crlf;
 		move_content_headers_to(part);
@@ -632,7 +631,7 @@ void Part::make_multipart(string_view subtype, string_view suggested_boundary) {
 			auto &part = append_part();
 			part.crlf = crlf;
 			move_content_headers_to(part);
-			part.body = exchange(body, {});
+			part.body = std::exchange(body, {});
 		}
 	}
 
@@ -641,7 +640,7 @@ void Part::make_multipart(string_view subtype, string_view suggested_boundary) {
 	if (boundary.empty())
 		boundary = random_string(32);
 
-	set_header("Content-Type", format("multipart/{}; boundary={}", subtype, quote_token(boundary)));
+	set_header("Content-Type", std::format("multipart/{}; boundary={}", subtype, quote_token(boundary)));
 }
 
 bool Part::flatten() {
@@ -674,15 +673,15 @@ bool Part::flatten() {
 
 // Body and attachments
 
-string Part::get_mime_type() const {
+std::string Part::get_mime_type() const {
 	return get_header_value("Content-Type");
 }
 
-void Part::set_mime_type(string_view type) {
+void Part::set_mime_type(std::string_view type) {
 	set_header_value("Content-Type", type);
 }
 
-bool Part::is_mime_type(string_view type) const {
+bool Part::is_mime_type(std::string_view type) const {
 	return types_match(get_mime_type(), type);
 }
 
@@ -700,17 +699,17 @@ enum class TransferEncoding {
 
 }
 
-static TransferEncoding choose_transfer_encoding(string_view data, bool is_text) {
+static TransferEncoding choose_transfer_encoding(std::string_view data, bool is_text) {
 	// Only base64 preserves the exact bytes, including line endings and the absence of a final newline.
 	if (!is_text)
 		return TransferEncoding::base64;
 
-	static constexpr size_t max_line_length = 998;
-	size_t unsafe_bytes = 0;
-	size_t line_length = 0;
+	static constexpr std::size_t max_line_length = 998;
+	std::size_t unsafe_bytes = 0;
+	std::size_t line_length = 0;
 	bool has_long_line = false;
 
-	for (size_t i = 0; i < data.size(); i++) {
+	for (std::size_t i = 0; i < data.size(); i++) {
 		auto c = static_cast<unsigned char>(data[i]);
 		bool is_line_break = c == '\n' || (c == '\r' && i + 1 < data.size() && data[i + 1] == '\n');
 		if (c == '\n') {
@@ -733,8 +732,8 @@ static TransferEncoding choose_transfer_encoding(string_view data, bool is_text)
 	return TransferEncoding::base64;
 }
 
-void Part::set_encoded_body(string_view data, bool is_text) {
-	static constexpr size_t base64_line_length = 76;
+void Part::set_encoded_body(std::string_view data, bool is_text) {
+	static constexpr std::size_t base64_line_length = 76;
 	auto ending = line_ending(crlf);
 
 	switch (choose_transfer_encoding(data, is_text)) {
@@ -754,7 +753,7 @@ void Part::set_encoded_body(string_view data, bool is_text) {
 }
 
 template <typename Self>
-Self *Part::find_first_matching_part(Self &self, const function<bool(const Part &)> &predicate) {
+Self *Part::find_first_matching_part(Self &self, const std::function<bool(const Part &)> &predicate) {
 	if (!self.multipart) {
 		if (self.body.empty() && !self.has_mime_type())
 			return nullptr;
@@ -772,35 +771,35 @@ Self *Part::find_first_matching_part(Self &self, const function<bool(const Part 
 	return nullptr;
 }
 
-const Part *Part::get_first_matching_part(const function<bool(const Part &)> &predicate) const {
+const Part *Part::get_first_matching_part(const std::function<bool(const Part &)> &predicate) const {
 	return find_first_matching_part(*this, predicate);
 }
 
-Part *Part::get_first_matching_part(const function<bool(const Part &)> &predicate) {
+Part *Part::get_first_matching_part(const std::function<bool(const Part &)> &predicate) {
 	return find_first_matching_part(*this, predicate);
 }
 
-static function<bool(const Part &)> has_type(string_view type) {
-	return [type = string(type)](const Part &part) {
+static std::function<bool(const Part &)> has_type(std::string_view type) {
+	return [type = std::string(type)](const Part &part) {
 		return types_match(part.has_mime_type() ? part.get_mime_type() : "text/plain", type);
 	};
 }
 
-const Part *Part::get_first_matching_part(string_view type) const {
+const Part *Part::get_first_matching_part(std::string_view type) const {
 	return find_first_matching_part(*this, has_type(type));
 }
 
-Part *Part::get_first_matching_part(string_view type) {
+Part *Part::get_first_matching_part(std::string_view type) {
 	return find_first_matching_part(*this, has_type(type));
 }
 
-string Part::get_first_matching_body(string_view type) const {
+std::string Part::get_first_matching_body(std::string_view type) const {
 	auto part = get_first_matching_part(type);
-	return part ? part->get_body() : string{};
+	return part ? part->get_body() : std::string{};
 }
 
-Part &Part::set_alternative(string_view subtype, string_view text) {
-	auto type = format("text/{}", subtype);
+Part &Part::set_alternative(std::string_view subtype, std::string_view text) {
+	auto type = std::format("text/{}", subtype);
 	Part *part = nullptr;
 
 	add_mime_version();
@@ -841,29 +840,29 @@ Part &Part::set_alternative(string_view subtype, string_view text) {
 	}
 
 	part->erase_content_headers();
-	part->set_header("Content-Type", format("{}; charset=utf-8", type));
+	part->set_header("Content-Type", std::format("{}; charset=utf-8", type));
 	part->set_encoded_body(text, true);
 
 	return *part;
 }
 
-void Part::set_plain(string_view text) {
+void Part::set_plain(std::string_view text) {
 	set_alternative("plain", text);
 }
 
-void Part::set_html(string_view text) {
+void Part::set_html(std::string_view text) {
 	set_alternative("html", text);
 }
 
-string Part::get_plain() const {
+std::string Part::get_plain() const {
 	return get_first_matching_body("text/plain");
 }
 
-string Part::get_html() const {
+std::string Part::get_html() const {
 	return get_first_matching_body("text/html");
 }
 
-string Part::get_text() const {
+std::string Part::get_text() const {
 	return get_first_matching_body("text");
 }
 
@@ -892,7 +891,7 @@ Part &Part::attach(const Part &attachment) {
 	return *part;
 }
 
-Part &Part::attach(string_view data, string_view type, string_view filename) {
+Part &Part::attach(std::string_view data, std::string_view type, std::string_view filename) {
 	Part *part = this;
 	if (multipart || !body.empty()) {
 		make_multipart("mixed");
@@ -911,18 +910,18 @@ Part &Part::attach(string_view data, string_view type, string_view filename) {
 	return *part;
 }
 
-Part &Part::attach(istream &in, string_view type, string_view filename) {
-	string data{istreambuf_iterator<char>(in), istreambuf_iterator<char>()};
+Part &Part::attach(std::istream &in, std::string_view type, std::string_view filename) {
+	std::string data{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 	return attach(data, type, filename);
 }
 
-vector<const Part *> Part::get_attachments() const {
+std::vector<const Part *> Part::get_attachments() const {
 	if (!multipart && is_attachment())
 		return {this};
 
-	vector<const Part *> attachments;
+	std::vector<const Part *> attachments;
 	for (auto &part: parts)
-		ranges::copy(part.get_attachments(), back_inserter(attachments));
+		std::ranges::copy(part.get_attachments(), std::back_inserter(attachments));
 
 	return attachments;
 }
@@ -934,7 +933,7 @@ void Part::simplify() {
 	for (auto &part: parts)
 		part.simplify();
 
-	erase_if(parts, [](const Part &part) {
+	std::erase_if(parts, [](const Part &part) {
 		return part.headers.empty() && part.body.empty();
 	});
 
@@ -963,7 +962,7 @@ void Part::clear_attachments() {
 	}
 }
 
-void Part::clear_alternative(string_view type) {
+void Part::clear_alternative(std::string_view type) {
 	bool cleared = false;
 
 	while (auto part = get_first_matching_part(type)) {
@@ -1006,7 +1005,7 @@ bool Part::has_html() const {
 }
 
 bool Part::has_attachments() const {
-	return is_attachment() || ranges::any_of(parts, &Part::has_attachments);
+	return is_attachment() || std::ranges::any_of(parts, &Part::has_attachments);
 }
 
 // RFC2822 messages
@@ -1015,12 +1014,12 @@ Message::Message() {
 	message = true;
 }
 
-ostream &operator<<(ostream &out, const Part &part) {
+std::ostream &operator<<(std::ostream &out, const Part &part) {
 	part.save(out);
 	return out;
 }
 
-istream &operator>>(istream &in, Part &part) {
+std::istream &operator>>(std::istream &in, Part &part) {
 	part.load(in);
 	return in;
 }

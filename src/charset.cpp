@@ -24,7 +24,6 @@
 
 #include "string-utils.hpp"
 
-using namespace std;
 
 namespace Mimesis {
 
@@ -34,9 +33,9 @@ class Converter {
 	iconv_t descriptor;
 
 	public:
-	Converter(const string &to, const string &from): descriptor(iconv_open(to.c_str(), from.c_str())) {
+	Converter(const std::string &to, const std::string &from): descriptor(iconv_open(to.c_str(), from.c_str())) {
 		if (descriptor == iconv_t(-1))
-			throw runtime_error(format("Unsupported character set \"{}\"", from));
+			throw std::runtime_error(std::format("Unsupported character set \"{}\"", from));
 	}
 
 	~Converter() {
@@ -47,37 +46,37 @@ class Converter {
 	Converter &operator=(const Converter &) = delete;
 
 	// Passing null input flushes any pending shift state.
-	size_t convert(char **input, size_t *input_left, char **output, size_t *output_left) {
+	std::size_t convert(char **input, std::size_t *input_left, char **output, std::size_t *output_left) {
 		return iconv(descriptor, input, input_left, output, output_left);
 	}
 };
 
 }
 
-string charset_decode(string_view charset, string_view text) {
-	Converter converter("UTF-8", string(charset));
+std::string charset_decode(std::string_view charset, std::string_view text) {
+	Converter converter("UTF-8", std::string(charset));
 
-	string out;
+	std::string out;
 	out.reserve(text.size());
 
 	char *input = const_cast<char *>(text.data());
-	size_t input_left = text.size();
+	std::size_t input_left = text.size();
 	bool flushing = false;
 
 	while (true) {
 		char buffer[4096];
 		char *output = buffer;
-		size_t output_left = sizeof buffer;
+		std::size_t output_left = sizeof buffer;
 
 		auto result = flushing
 			? converter.convert(nullptr, nullptr, &output, &output_left)
 			: converter.convert(&input, &input_left, &output, &output_left);
 		out.append(buffer, output);
 
-		if (result == static_cast<size_t>(-1)) {
+		if (result == static_cast<std::size_t>(-1)) {
 			if (errno == E2BIG)
 				continue;
-			throw runtime_error(format("Invalid {} text", charset));
+			throw std::runtime_error(std::format("Invalid {} text", charset));
 		}
 
 		if (flushing)
@@ -87,7 +86,7 @@ string charset_decode(string_view charset, string_view text) {
 	}
 }
 
-bool is_utf8_compatible(string_view charset) {
+bool is_utf8_compatible(std::string_view charset) {
 	charset = trim(charset);
 	return charset.empty() || iequals(charset, "utf-8") || iequals(charset, "utf8") || iequals(charset, "us-ascii") || iequals(charset, "ascii");
 }

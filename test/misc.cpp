@@ -11,10 +11,9 @@
 
 #include "parameters.hpp"
 
-using namespace std::chrono;
-
 TEST_CASE("Dates are formatted in UTC without depending on the locale") {
-	auto date = sys_days{year{2024} / 3 / 5} + 13h + 4min + 5s + 678ms;
+	auto date = std::chrono::sys_days{std::chrono::year{2024} / 3 / 5}
+		+ std::chrono::hours{13} + std::chrono::minutes{4} + std::chrono::seconds{5} + std::chrono::milliseconds{678};
 
 	Mimesis::Message message;
 	message.set_date(date);

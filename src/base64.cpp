@@ -21,24 +21,23 @@
 #include <array>
 #include <cstdint>
 
-using namespace std;
 
 namespace Mimesis {
 
-static constexpr string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static constexpr std::string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static constexpr auto inverse_alphabet = [] {
-	array<int8_t, 256> inverse{};
+	std::array<std::int8_t, 256> inverse{};
 	inverse.fill(-1);
-	for (size_t i = 0; i < alphabet.size(); i++)
-		inverse[static_cast<uint8_t>(alphabet[i])] = static_cast<int8_t>(i);
+	for (std::size_t i = 0; i < alphabet.size(); i++)
+		inverse[static_cast<std::uint8_t>(alphabet[i])] = static_cast<std::int8_t>(i);
 	return inverse;
 }();
 
-string base64_encode(string_view in, size_t line_length, string_view line_ending) {
-	string out;
+std::string base64_encode(std::string_view in, std::size_t line_length, std::string_view line_ending) {
+	std::string out;
 	out.reserve((in.size() + 2) / 3 * 4);
-	size_t column = 0;
+	std::size_t column = 0;
 
 	auto emit = [&](char c) {
 		if (line_length && column == line_length) {
@@ -49,12 +48,12 @@ string base64_encode(string_view in, size_t line_length, string_view line_ending
 		column++;
 	};
 
-	for (size_t i = 0; i < in.size(); i += 3) {
-		size_t available = min<size_t>(in.size() - i, 3);
-		uint32_t triplet = 0;
-		for (size_t j = 0; j < 3; j++)
-			triplet = triplet << 8 | (j < available ? static_cast<uint8_t>(in[i + j]) : 0);
-		for (size_t j = 0; j < 4; j++)
+	for (std::size_t i = 0; i < in.size(); i += 3) {
+		std::size_t available = std::min<std::size_t>(in.size() - i, 3);
+		std::uint32_t triplet = 0;
+		for (std::size_t j = 0; j < 3; j++)
+			triplet = triplet << 8 | (j < available ? static_cast<std::uint8_t>(in[i + j]) : 0);
+		for (std::size_t j = 0; j < 4; j++)
 			emit(j <= available ? alphabet[(triplet >> (18 - 6 * j)) & 63] : '=');
 	}
 
@@ -64,14 +63,14 @@ string base64_encode(string_view in, size_t line_length, string_view line_ending
 	return out;
 }
 
-string base64_decode(string_view in) {
-	string out;
+std::string base64_decode(std::string_view in) {
+	std::string out;
 	out.reserve(in.size() / 4 * 3);
 
-	size_t count = 0;
-	uint32_t triplet = 0;
+	std::size_t count = 0;
+	std::uint32_t triplet = 0;
 
-	for (uint8_t c: in) {
+	for (std::uint8_t c: in) {
 		auto value = inverse_alphabet[c];
 		if (value == -1) {
 			if (c == '=')
@@ -79,7 +78,7 @@ string base64_decode(string_view in) {
 			continue;
 		}
 
-		triplet = triplet << 6 | static_cast<uint32_t>(value);
+		triplet = triplet << 6 | static_cast<std::uint32_t>(value);
 
 		if (++count % 4 == 0) {
 			out.push_back(static_cast<char>(triplet >> 16));

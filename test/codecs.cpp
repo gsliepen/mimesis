@@ -9,7 +9,6 @@
 #include "test-utils.hpp"
 
 using namespace Mimesis;
-using namespace std::string_literals;
 
 static std::string all_bytes() {
 	std::string bytes;
