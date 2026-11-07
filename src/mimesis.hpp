@@ -86,7 +86,9 @@ class MIMESIS_EXPORT Part {
 	void move_content_headers_to(Part &destination);
 	void erase_content_headers();
 	void copy_content_from(const Part &source);
-	void set_encoded_body(std::string_view data, bool is_text);
+	void set_encoded_body(std::string_view transfer_encoding, std::string encoded_body);
+	void set_text_body(std::string_view text);
+	void set_attachment_body(std::string_view data);
 	void add_mime_version();
 	bool ends_with_newline() const;
 
@@ -405,8 +407,9 @@ class MIMESIS_EXPORT Part {
 	/// Sets the text for the given subtype of text, replacing existing text of that subtype.
 	///
 	/// The text is added as an alternative to other text, and in front of attachments, creating
-	/// multipart/alternative and multipart/mixed parts as needed. It is encoded as quoted-printable
-	/// or base64 if necessary.
+	/// multipart/alternative and multipart/mixed parts as needed. Line breaks are converted to the
+	/// line ending style of the part, see set_crlf(). Text that is not ASCII or that has lines longer
+	/// than 78 characters is encoded as quoted-printable or base64.
 	/// \param subtype The subtype of text, for example "plain" or "html".
 	/// \param text The text, in UTF-8.
 	/// \return The part that holds the text.
@@ -470,6 +473,8 @@ class MIMESIS_EXPORT Part {
 
 	/// Attaches data, encoding it as base64 if necessary.
 	///
+	/// The data is kept exactly. Only text that already has the line ending style of the part,
+	/// consists of ASCII lines of at most 78 characters, and ends with a line break is not encoded.
 	/// If this part is empty, it becomes the attachment itself. Otherwise it is made multipart/mixed.
 	/// \param data The content of the attachment.
 	/// \param mime_type The MIME type of the data. If empty, text/plain is used.

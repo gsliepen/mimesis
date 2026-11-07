@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <vector>
 
 #include <mimesis.hpp>
 
@@ -191,6 +192,58 @@ TEST_CASE("Text is encoded as needed") {
 	Mimesis::Message reparsed;
 	reparsed.from_string(message.to_string());
 	CHECK(reparsed.get_plain() == message.get_plain());
+}
+
+TEST_CASE("Line breaks in text are normalized") {
+	Mimesis::Message message;
+	message["Subject"] = "x";
+
+	message.set_plain("LF\nCR\rCRLF\r\nend\n");
+	CHECK(message.get_header("Content-Transfer-Encoding").empty());
+	CHECK(message.get_plain() == "LF\r\nCR\r\nCRLF\r\nend\r\n");
+
+	message.set_plain("Café\nau lait\n");
+	CHECK(message.get_header("Content-Transfer-Encoding") == "quoted-printable");
+	CHECK(message.get_plain() == "Café\r\nau lait\r\n");
+
+	Mimesis::Message lf_message;
+	lf_message.set_crlf(false);
+	lf_message["Subject"] = "x";
+	lf_message.set_plain("a\r\nb\n");
+	CHECK(lf_message.get_plain() == "a\nb\n");
+	CHECK(lf_message.to_string().find('\r') == std::string::npos);
+}
+
+TEST_CASE("Text with lines longer than 78 characters is encoded") {
+	Mimesis::Message message;
+	message["Subject"] = "x";
+
+	message.set_plain(std::string(78, 'x') + "\r\n");
+	CHECK(message.get_header("Content-Transfer-Encoding").empty());
+
+	auto text = std::string(79, 'x') + "\r\n";
+	message.set_plain(text);
+	CHECK(message.get_header("Content-Transfer-Encoding") == "quoted-printable");
+	CHECK(all_lines_at_most(message.to_string(), 76));
+	CHECK(message.get_plain() == text);
+}
+
+TEST_CASE("Text attachments keep their exact content") {
+	for (std::string data: std::vector<std::string>{"a\nb", "a\nb\n", "caf\xc3\xa9\r\n", std::string(100, 'x') + "\r\n", "canonical\r\n"}) {
+		INFO(data);
+		Mimesis::Message message;
+		message["Subject"] = "x";
+		message.set_plain("See attachment.\r\n");
+		message.attach(data, "text/plain", "a.txt");
+
+		auto encoding = message.get_attachments()[0]->get_header("Content-Transfer-Encoding");
+		CHECK(encoding == (data == "canonical\r\n" ? "" : "base64"));
+
+		Mimesis::Message reparsed;
+		reparsed.from_string(message.to_string());
+		REQUIRE(reparsed.get_attachments().size() == 1);
+		CHECK(reparsed.get_attachments()[0]->get_body() == data);
+	}
 }
 
 TEST_CASE("Binary attachments are base64 encoded") {

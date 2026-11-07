@@ -699,57 +699,90 @@ enum class TransferEncoding {
 
 }
 
-static TransferEncoding choose_transfer_encoding(std::string_view data, bool is_text) {
-	// Only base64 preserves the exact bytes, including line endings and the absence of a final newline.
-	if (!is_text)
-		return TransferEncoding::base64;
+// RFC 5322 section 2.1.1 recommends lines of at most 78 characters.
+static constexpr std::size_t max_line_length = 78;
 
-	static constexpr std::size_t max_line_length = 998;
-	std::size_t unsafe_bytes = 0;
-	std::size_t line_length = 0;
-	bool has_long_line = false;
+static std::string normalize_line_endings(std::string_view text, std::string_view ending) {
+	std::string result;
+	result.reserve(text.size());
 
-	for (std::size_t i = 0; i < data.size(); i++) {
-		auto c = static_cast<unsigned char>(data[i]);
-		bool is_line_break = c == '\n' || (c == '\r' && i + 1 < data.size() && data[i + 1] == '\n');
-		if (c == '\n') {
-			line_length = 0;
+	for (std::size_t i = 0; i < text.size(); i++) {
+		if (text[i] != '\r' && text[i] != '\n') {
+			result.push_back(text[i]);
 			continue;
 		}
-		if (!is_line_break && (c >= 128 || c == 0 || c == '\r'))
-			unsafe_bytes++;
-		if (++line_length > max_line_length)
-			has_long_line = true;
+		if (text.substr(i).starts_with("\r\n"))
+			i++;
+		result += ending;
 	}
 
-	if (!unsafe_bytes && !has_long_line)
+	return result;
+}
+
+// Whether text can be sent unencoded and will be read back exactly the same.
+static bool is_canonical_text(std::string_view text, std::string_view ending) {
+	if (!text.empty() && !text.ends_with(ending))
+		return false;
+
+	auto is_safe = [](unsigned char c) { return c != 0 && c != '\r' && c != '\n' && c < 128; };
+
+	while (!text.empty()) {
+		auto line = text.substr(0, text.find(ending));
+		if (line.size() > max_line_length || !std::ranges::all_of(line, is_safe))
+			return false;
+		text.remove_prefix(line.size() + ending.size());
+	}
+
+	return true;
+}
+
+// Expects text with normalized line endings.
+static TransferEncoding choose_text_encoding(std::string_view text, std::string_view ending) {
+	// A missing final line break doesn't matter for the body text.
+	auto terminated_text = text.empty() || text.ends_with(ending) ? std::string(text) : std::string(text) + std::string(ending);
+	if (is_canonical_text(terminated_text, ending))
 		return TransferEncoding::seven_bit;
 
-	// Quoted-printable triples the size of unsafe bytes, base64 grows everything by a third.
-	if (unsafe_bytes * 5 < data.size())
+	// Quoted-printable triples the size of non-ASCII bytes, base64 grows everything by a third.
+	auto non_ascii_bytes = std::ranges::count_if(text, [](unsigned char c) { return c >= 128 || c == 0; });
+	if (static_cast<std::size_t>(non_ascii_bytes) * 5 < text.size())
 		return TransferEncoding::quoted_printable;
 
 	return TransferEncoding::base64;
 }
 
-void Part::set_encoded_body(std::string_view data, bool is_text) {
+// Returns the Content-Transfer-Encoding to use, empty for 7bit, and the encoded data.
+static std::pair<std::string_view, std::string> encode_body(std::string_view data, TransferEncoding encoding, std::string_view ending) {
 	static constexpr std::size_t base64_line_length = 76;
-	auto ending = line_ending(crlf);
 
-	switch (choose_transfer_encoding(data, is_text)) {
-	case TransferEncoding::seven_bit:
-		erase_header("Content-Transfer-Encoding");
-		body = data;
-		break;
+	switch (encoding) {
 	case TransferEncoding::quoted_printable:
-		set_header("Content-Transfer-Encoding", "quoted-printable");
-		body = quoted_printable_encode(data, ending);
-		break;
+		return {"quoted-printable", quoted_printable_encode(data, ending)};
 	case TransferEncoding::base64:
-		set_header("Content-Transfer-Encoding", "base64");
-		body = base64_encode(data, base64_line_length, ending);
-		break;
+		return {"base64", base64_encode(data, base64_line_length, ending)};
+	default:
+		return {{}, std::string(data)};
 	}
+}
+
+void Part::set_encoded_body(std::string_view transfer_encoding, std::string encoded_body) {
+	set_header("Content-Transfer-Encoding", transfer_encoding);
+	body = std::move(encoded_body);
+}
+
+void Part::set_text_body(std::string_view text) {
+	auto ending = line_ending(crlf);
+	auto normalized = normalize_line_endings(text, ending);
+	auto [transfer_encoding, encoded_body] = encode_body(normalized, choose_text_encoding(normalized, ending), ending);
+	set_encoded_body(transfer_encoding, std::move(encoded_body));
+}
+
+void Part::set_attachment_body(std::string_view data) {
+	// Attachments are kept exactly, so only text that is already canonical is sent unencoded.
+	auto ending = line_ending(crlf);
+	auto encoding = is_mime_type("text") && is_canonical_text(data, ending) ? TransferEncoding::seven_bit : TransferEncoding::base64;
+	auto [transfer_encoding, encoded_body] = encode_body(data, encoding, ending);
+	set_encoded_body(transfer_encoding, std::move(encoded_body));
 }
 
 template <typename Self>
@@ -841,7 +874,7 @@ Part &Part::set_alternative(std::string_view subtype, std::string_view text) {
 
 	part->erase_content_headers();
 	part->set_header("Content-Type", std::format("{}; charset=utf-8", type));
-	part->set_encoded_body(text, true);
+	part->set_text_body(text);
 
 	return *part;
 }
@@ -905,7 +938,7 @@ Part &Part::attach(std::string_view data, std::string_view type, std::string_vie
 	part->set_header("Content-Disposition", "attachment");
 	if (!filename.empty())
 		part->set_header_parameter("Content-Disposition", "filename", filename);
-	part->set_encoded_body(data, part->is_mime_type("text"));
+	part->set_attachment_body(data);
 
 	return *part;
 }
