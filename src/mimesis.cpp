@@ -32,7 +32,6 @@
 #include "base64.hpp"
 #include "charset.hpp"
 #include "quoted-printable.hpp"
-#include "string_view.hpp"
 
 using namespace std;
 

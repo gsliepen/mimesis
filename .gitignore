@@ -5,3 +5,5 @@ core
 core.*
 vgcore.*
 /build*
+/subprojects/*/
+/subprojects/packagecache/
