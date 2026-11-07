@@ -6,12 +6,16 @@ Version 0.2
 - Fixed base64 encoding, quoted-printable decoding and character set
   conversion.
 - The high-level functions now encode bodies (quoted-printable or base64)
-  and add charset and MIME-Version headers as needed.
+  and add charset and MIME-Version headers as needed. Attachments that are
+  not text are always base64 encoded, so their content is kept exactly.
+- Long header lines are folded when saving.
 - get_header_value() and set_header_value() handle RFC 2047 encoded words,
   header parameters handle RFC 2231. get_header() and set_header() stay raw.
 - Header values with line breaks are rejected to prevent header injection.
 - Truncated and slightly malformed messages are parsed leniently.
 - Dates are written in UTC, without changing the process' locale.
+- The shared library has a versioned soname, and only exports the public API.
+- API documentation can be generated with Doxygen.
 - The test suite now uses Catch2.
 
 Initial commit               August 30 2017
