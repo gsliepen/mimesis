@@ -1,1 +1,17 @@
+Version 0.2
+
+- Requires C++20. The public API takes std::string_view where possible.
+- Fixed an out-of-bounds read when parsing parameters without a value, and
+  several other parsing bugs.
+- Fixed base64 encoding, quoted-printable decoding and character set
+  conversion.
+- The high-level functions now encode bodies (quoted-printable or base64)
+  and add charset and MIME-Version headers as needed.
+- get_header_value() and set_header_value() handle RFC 2047 encoded words,
+  header parameters handle RFC 2231. get_header() and set_header() stay raw.
+- Header values with line breaks are rejected to prevent header injection.
+- Truncated and slightly malformed messages are parsed leniently.
+- Dates are written in UTC, without changing the process' locale.
+- The test suite now uses Catch2.
+
 Initial commit               August 30 2017

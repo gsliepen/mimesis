@@ -7,7 +7,7 @@ Mimesis are:
 
 - Equally good at parsing and building RFC2822 messages.
 - Easy API without unnecessary abstraction layers.
-- Make good use of C++11 features.
+- Make good use of modern C++ (C++20) features.
 
 In particular, applications that parse/build emails want to treat them just
 like a user would treat emails in a mail user agent (MUA). Users don't see
@@ -18,19 +18,24 @@ types and content encodings, MUAs handle those details automatically.
 Building and installing
 -----------------------
 
-Mimesis uses the Meson build system. Ensure you have this installed. Use your
-operating system's package manager if available, for example on Debian and its
-derivatives, use `sudo apt install meson`. If that is not possible, download
-and install Meson from https://mesonbuild.com/.
+Mimesis requires a C++20 compiler (tested with GCC 14 and Clang 19) and uses the
+Meson build system. Ensure you have this installed. Use your operating system's
+package manager if available, for example on Debian and its derivatives, use
+`sudo apt install meson`. If that is not possible, download and install Meson
+from https://mesonbuild.com/.
 
 To build Mimesis, run these commands in the root directory of the source code:
 
-    meson build
+    meson setup build
     ninja -C build
 
-To run the test suite, run:
+The test suite uses Catch2 v3. If it is not installed on your system (on Debian:
+`sudo apt install catch2`), Meson will download it automatically. To run the
+test suite, run:
 
-    ninja -C build test
+    meson test -C build
+
+To build without the test suite, add `-Dtests=disabled` to the setup command.
 
 To install the binaries on your system, run:
 
@@ -43,7 +48,7 @@ By default, a debug version will be built, and the resulting libraries and
 header files will be install inside `/usr/local/`. If you want to create a
 release build and install it in `/usr/`, use the following commands:
 
-    meson --buildtype=release --prefix=/usr build-release
+    meson setup --buildtype=release --prefix=/usr build-release
     ninja -C build-release install
 
 Distribution packagers that want to override all compiler flags should use
