@@ -17,6 +17,7 @@
 
 #include "charset.hpp"
 
+#include <cerrno>
 #include <iconv.h>
 #include <stdexcept>
 

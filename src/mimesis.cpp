@@ -18,7 +18,11 @@
 #include "mimesis.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <clocale>
+#include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <fstream>
 #include <random>

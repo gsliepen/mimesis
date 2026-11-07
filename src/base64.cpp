@@ -17,6 +17,8 @@
 
 #include "base64.hpp"
 
+#include <cstdint>
+
 using namespace std;
 
 static const string base64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
