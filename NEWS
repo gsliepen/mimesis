@@ -1,4 +1,4 @@
-Version 0.2
+Version 0.2                  November 7 2026
 
 - Requires C++20. The public API takes std::string_view where possible.
 - Fixed an out-of-bounds read when parsing parameters without a value, and
