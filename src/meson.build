@@ -1,3 +1,6 @@
+# Part of the C library on glibc, a separate library on other systems.
+iconv = dependency('iconv')
+
 # Only symbols marked with MIMESIS_EXPORT are visible in the shared library.
 # The tests link the static library, so they can use the internal functions as well.
 libmimesis_internal = static_library('mimesis-internal',
@@ -7,6 +10,7 @@ libmimesis_internal = static_library('mimesis-internal',
 	'mimesis.cpp',
 	'parameters.cpp',
 	'quoted-printable.cpp',
+	dependencies: iconv,
 	gnu_symbol_visibility: 'hidden',
 	pic: true,
 )
