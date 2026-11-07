@@ -14,7 +14,7 @@ if catch2.found()
 		dependencies: [catch2, dependency('threads')],
 		cpp_args: '-DTEST_DATA_DIR="' + meson.current_source_dir() / 'input-clean' + '"',
 	)
-	test('mimesis', tests, protocol: 'tap', args: ['--reporter', 'tap'])
+	test('mimesis', tests)
 
 	shared_library_tests = executable('shared-library-tests',
 		'shared-library.cpp',
@@ -22,5 +22,5 @@ if catch2.found()
 		include_directories: incdir,
 		dependencies: catch2,
 	)
-	test('shared library', shared_library_tests, protocol: 'tap', args: ['--reporter', 'tap'])
+	test('shared library', shared_library_tests)
 endif
